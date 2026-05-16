@@ -9,8 +9,9 @@ import { Codemirror } from 'vue-codemirror'
 import { useRoute, useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import { createPost, getPost, publishPost, unpublishPost, updatePost } from '@/api/posts'
+import ImageUploadCropper from '@/components/ImageUploadCropper.vue'
 import { listTags } from '@/api/tags'
-import type { AdminPostResponse, CreatePostRequest, TagResponse } from '@/types/api'
+import type { AdminPostResponse, CreatePostRequest, ImageResponse, TagResponse } from '@/types/api'
 import { formatDateTime } from '@/utils/format'
 
 interface PostForm {
@@ -19,8 +20,8 @@ interface PostForm {
   subtitle: string
   excerpt: string
   body: string
-  coverImageId: string
-  bannerImageId: string
+  coverImageId: string | null
+  bannerImageId: string | null
   tagIds: string[]
 }
 
@@ -34,6 +35,7 @@ const saving = ref(false)
 const post = ref<AdminPostResponse | null>(null)
 const tags = ref<TagResponse[]>([])
 const editorMode = ref<EditorMode>('edit')
+const embeddedImageId = ref<string | null>(null)
 const postId = computed(() => (typeof route.params.id === 'string' ? route.params.id : ''))
 const isEditing = computed(() => !!postId.value)
 const showBodyEditor = computed(() => editorMode.value !== 'preview')
@@ -48,8 +50,8 @@ const form = reactive<PostForm>({
   subtitle: '',
   excerpt: '',
   body: '',
-  coverImageId: '',
-  bannerImageId: '',
+  coverImageId: null,
+  bannerImageId: null,
   tagIds: [],
 })
 
@@ -79,6 +81,8 @@ const editorExtensions = [
     '&': {
       minHeight: '560px',
       fontSize: '14px',
+      backgroundColor: 'var(--el-bg-color)',
+      color: 'var(--el-text-color-primary)',
     },
     '.cm-scroller': {
       fontFamily: '"JetBrains Mono", "SFMono-Regular", Consolas, monospace',
@@ -88,6 +92,20 @@ const editorExtensions = [
     },
     '.cm-line': {
       padding: '0 14px',
+    },
+    '.cm-gutters': {
+      backgroundColor: 'var(--el-fill-color-light)',
+      borderRightColor: 'var(--el-border-color)',
+      color: 'var(--el-text-color-secondary)',
+    },
+    '.cm-activeLine, .cm-activeLineGutter': {
+      backgroundColor: 'var(--el-fill-color)',
+    },
+    '.cm-cursor': {
+      borderLeftColor: 'var(--el-text-color-primary)',
+    },
+    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
+      backgroundColor: 'var(--el-color-primary-light-5)',
     },
   }),
 ]
@@ -184,8 +202,8 @@ function applyPost(value: AdminPostResponse): void {
   form.subtitle = value.subtitle ?? ''
   form.excerpt = value.excerpt ?? ''
   form.body = value.body
-  form.coverImageId = value.coverImageId ?? ''
-  form.bannerImageId = value.bannerImageId ?? ''
+  form.coverImageId = value.coverImageId
+  form.bannerImageId = value.bannerImageId
   form.tagIds = value.tags.map((tag) => tag.id)
 }
 
@@ -196,8 +214,8 @@ function buildRequest(): CreatePostRequest {
     subtitle: normalizeOptional(form.subtitle),
     excerpt: normalizeOptional(form.excerpt),
     body: form.body,
-    coverImageId: normalizeOptional(form.coverImageId),
-    bannerImageId: normalizeOptional(form.bannerImageId),
+    coverImageId: form.coverImageId,
+    bannerImageId: form.bannerImageId,
     tagIds: form.tagIds,
   }
 }
@@ -210,6 +228,20 @@ function normalizeOptional(value: string): string | null {
 function validateBody(): void {
   const validation = formRef.value?.validateField('body')
   void validation?.catch(() => undefined)
+}
+
+function handleEmbeddedImageUploaded(image: ImageResponse): void {
+  const label = image.originalFileName.replace(/\.[^.]+$/, '').trim() || 'image'
+  const markdownImage = `![${escapeMarkdownLabel(label)}](${image.url})`
+  form.body = form.body.trimEnd()
+    ? `${form.body.trimEnd()}\n\n${markdownImage}\n`
+    : `${markdownImage}\n`
+  embeddedImageId.value = null
+  validateBody()
+}
+
+function escapeMarkdownLabel(value: string): string {
+  return value.replace(/[[\]\\]/g, '\\$&')
 }
 </script>
 
@@ -265,23 +297,47 @@ function validateBody(): void {
               />
             </el-form-item>
 
-            <el-form-item label="Cover image id">
-              <el-input v-model="form.coverImageId" placeholder="Not implemented by backend yet" />
+            <el-form-item label="Cover image">
+              <ImageUploadCropper
+                v-model="form.coverImageId"
+                label="Cover image"
+                purpose="Cover"
+                :aspect-ratio="16 / 9"
+                :output-width="1200"
+                :output-height="675"
+              />
             </el-form-item>
 
-            <el-form-item label="Banner image id">
-              <el-input v-model="form.bannerImageId" placeholder="Not implemented by backend yet" />
+            <el-form-item label="Banner image">
+              <ImageUploadCropper
+                v-model="form.bannerImageId"
+                label="Banner image"
+                purpose="Banner"
+                :aspect-ratio="3"
+                :output-width="1800"
+                :output-height="600"
+              />
             </el-form-item>
 
             <el-form-item prop="body" class="wide body-field">
               <template #label>
                 <div class="body-label">
                   <span>Body</span>
-                  <el-radio-group v-model="editorMode" size="small" class="editor-mode-group">
-                    <el-radio-button value="edit">Edit</el-radio-button>
-                    <el-radio-button value="split">Edit + preview</el-radio-button>
-                    <el-radio-button value="preview">Preview</el-radio-button>
-                  </el-radio-group>
+                  <div class="body-actions">
+                    <ImageUploadCropper
+                      v-model="embeddedImageId"
+                      compact
+                      label="Embedded image"
+                      purpose="Embedded"
+                      button-label="Insert image"
+                      @uploaded="handleEmbeddedImageUploaded"
+                    />
+                    <el-radio-group v-model="editorMode" size="small" class="editor-mode-group">
+                      <el-radio-button value="edit">Edit</el-radio-button>
+                      <el-radio-button value="split">Edit + preview</el-radio-button>
+                      <el-radio-button value="preview">Preview</el-radio-button>
+                    </el-radio-group>
+                  </div>
                 </div>
               </template>
 
@@ -325,15 +381,22 @@ function validateBody(): void {
   flex-shrink: 0;
 }
 
+.body-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .body-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   width: 100%;
   min-height: 560px;
   overflow: hidden;
-  border: 1px solid #d9e2ef;
+  border: 1px solid var(--el-border-color);
   border-radius: 8px;
-  background: #fff;
+  background: var(--el-bg-color);
 }
 
 .body-workspace.is-split {
@@ -347,7 +410,7 @@ function validateBody(): void {
 }
 
 .editor-pane {
-  border-right: 1px solid #d9e2ef;
+  border-right: 1px solid var(--el-border-color);
 }
 
 .body-workspace:not(.is-split) .editor-pane {
@@ -364,19 +427,19 @@ function validateBody(): void {
 }
 
 .post-body-editor :deep(.cm-focused) {
-  outline: 2px solid #8bb8ff;
+  outline: 2px solid var(--el-color-primary-light-3);
   outline-offset: -2px;
 }
 
 .preview-pane {
   overflow: auto;
   padding: 22px 24px;
-  background: #fbfcff;
+  background: var(--el-bg-color);
 }
 
 .markdown-preview {
   max-width: 860px;
-  color: #1f2937;
+  color: var(--el-text-color-primary);
   line-height: 1.7;
 }
 
@@ -384,7 +447,7 @@ function validateBody(): void {
 .markdown-preview :deep(h2),
 .markdown-preview :deep(h3) {
   margin: 1.25em 0 0.55em;
-  color: #0f172a;
+  color: var(--el-text-color-primary);
   line-height: 1.25;
 }
 
@@ -404,21 +467,27 @@ function validateBody(): void {
 }
 
 .markdown-preview :deep(a) {
-  color: #2563eb;
+  color: var(--el-color-primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
+.markdown-preview :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
 .markdown-preview :deep(blockquote) {
   padding: 0 0 0 14px;
-  border-left: 3px solid #9db4d3;
-  color: #475569;
+  border-left: 3px solid var(--el-border-color-darker);
+  color: var(--el-text-color-regular);
 }
 
 .markdown-preview :deep(code) {
   padding: 2px 5px;
   border-radius: 5px;
-  background: #e9eef7;
+  background: var(--el-fill-color-light);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 0.92em;
 }
@@ -427,8 +496,8 @@ function validateBody(): void {
   overflow: auto;
   padding: 14px;
   border-radius: 8px;
-  background: #101827;
-  color: #e5edf7;
+  background: var(--el-fill-color-darker);
+  color: var(--el-text-color-primary);
 }
 
 .markdown-preview :deep(pre code) {
@@ -441,7 +510,7 @@ function validateBody(): void {
   display: grid;
   min-height: 516px;
   place-items: center;
-  color: #64748b;
+  color: var(--el-text-color-secondary);
 }
 
 @media (max-width: 980px) {
@@ -451,13 +520,17 @@ function validateBody(): void {
 
   .body-workspace.is-split .editor-pane {
     border-right: 0;
-    border-bottom: 1px solid #d9e2ef;
+    border-bottom: 1px solid var(--el-border-color);
   }
 }
 
 @media (max-width: 720px) {
   .body-label {
     display: grid;
+  }
+
+  .body-actions {
+    justify-content: flex-start;
   }
 
   .editor-mode-group {

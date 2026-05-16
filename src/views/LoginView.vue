@@ -84,18 +84,16 @@ async function submit(): Promise<void> {
   min-height: 100vh;
   place-items: center;
   padding: 24px;
-  background:
-    linear-gradient(135deg, rgba(37, 99, 235, 0.08), transparent 40%),
-    #f5f7fb;
+  background: var(--el-bg-color-page);
 }
 
 .login-panel {
   width: min(100%, 420px);
   padding: 28px;
-  border: 1px solid #d9e2ef;
+  border: 1px solid var(--el-border-color);
   border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 24px 60px rgba(31, 41, 55, 0.09);
+  background: var(--el-bg-color);
+  box-shadow: var(--el-box-shadow-dark);
 }
 
 .login-header {
@@ -111,8 +109,8 @@ async function submit(): Promise<void> {
   height: 40px;
   place-items: center;
   border-radius: 8px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--el-color-primary);
+  color: var(--el-color-white);
   font-weight: 750;
 }
 
@@ -124,7 +122,7 @@ h1 {
 
 p {
   margin: 4px 0 0;
-  color: #64748b;
+  color: var(--el-text-color-secondary);
 }
 
 .login-button {

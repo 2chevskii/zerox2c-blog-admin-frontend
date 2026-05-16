@@ -2,6 +2,8 @@ export type UserRole = 'User' | 'Admin' | 'SuperAdmin'
 
 export type PostStatus = 'Draft' | 'Published'
 
+export type ImagePurpose = 'Cover' | 'Banner' | 'Embedded'
+
 export interface AuthResponse {
   userId: string
   username: string
@@ -90,6 +92,17 @@ export interface CreatePostRequest {
 }
 
 export type UpdatePostRequest = CreatePostRequest
+
+export interface ImageResponse {
+  id: string
+  originalFileName: string
+  contentType: string
+  sizeBytes: number
+  purpose: ImagePurpose
+  url: string
+  createdBy: string
+  createdAt: string
+}
 
 export interface ListQuery {
   offset?: number

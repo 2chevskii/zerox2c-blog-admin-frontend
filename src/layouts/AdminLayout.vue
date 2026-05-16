@@ -112,8 +112,8 @@ async function logout(): Promise<void> {
 
 .sidebar {
   width: 240px;
-  border-right: 1px solid #d9e2ef;
-  background: #fff;
+  border-right: 1px solid var(--el-border-color);
+  background: var(--el-bg-color);
   transition: width 160ms ease;
 }
 
@@ -127,7 +127,7 @@ async function logout(): Promise<void> {
   gap: 12px;
   min-height: 64px;
   padding: 0 16px;
-  border-bottom: 1px solid #e5edf7;
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
 .brand-mark {
@@ -137,8 +137,8 @@ async function logout(): Promise<void> {
   height: 32px;
   place-items: center;
   border-radius: 8px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--el-color-primary);
+  color: var(--el-color-white);
   font-size: 13px;
   font-weight: 750;
 }
@@ -149,7 +149,7 @@ async function logout(): Promise<void> {
 }
 
 .brand span {
-  color: #64748b;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 
@@ -167,8 +167,8 @@ async function logout(): Promise<void> {
   gap: 12px;
   min-height: 64px;
   padding: 0 22px;
-  border-bottom: 1px solid #d9e2ef;
-  background: #fff;
+  border-bottom: 1px solid var(--el-border-color);
+  background: var(--el-bg-color);
 }
 
 .topbar-spacer {
@@ -190,7 +190,7 @@ async function logout(): Promise<void> {
     z-index: 10;
     width: 100%;
     border-right: 0;
-    border-bottom: 1px solid #d9e2ef;
+    border-bottom: 1px solid var(--el-border-color);
   }
 
   .sidebar.is-collapsed {

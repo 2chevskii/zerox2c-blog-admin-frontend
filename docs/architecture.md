@@ -11,6 +11,7 @@ The app is a Vite-powered Vue 3 SPA. It uses:
 - Element Plus for the admin component system.
 - CodeMirror 6 via `vue-codemirror` for editing post bodies.
 - `markdown-it` for admin-side Markdown preview rendering with raw HTML disabled.
+- Cropper.js for client-side image panning/cropping before upload.
 - Native `fetch` through a small typed wrapper in `src/api/http.ts`.
 
 ## Authentication Flow
@@ -31,6 +32,7 @@ The app currently trusts the backend for write authorization. SuperAdmin-only ro
 - `src/api/posts.ts`
 - `src/api/tags.ts`
 - `src/api/users.ts`
+- `src/api/images.ts`
 
 The backend returns arrays for list endpoints without total counts. List pages use offset/limit controls and infer "next page" from receiving exactly `limit` rows.
 
@@ -48,7 +50,7 @@ All routes except `/login` are nested under `AdminLayout` and require an authent
 
 ## Styling
 
-Global styling lives in `src/styles.css`. Element Plus handles the base control system; local CSS should only handle page layout, spacing, and app-specific polish.
+Global styling lives in `src/styles.css`. The app uses Element Plus' default dark theme by importing `element-plus/theme-chalk/dark/css-vars.css` and setting `class="dark"` on the root `html` element. Local CSS should use Element Plus CSS variables for color, background, and border values so pages stay aligned with the dark theme.
 
 ## Post Editing
 
@@ -60,8 +62,15 @@ The body editor uses three modes:
 - `Edit + preview`: CodeMirror and rendered Markdown side by side on desktop, stacked on narrow screens.
 - `Preview`: rendered Markdown only.
 
+Image uploads:
+
+- `ImageUploadCropper` wraps Element Plus upload/dialog controls and Cropper.js.
+- Cover uploads use `ImagePurpose.Cover`, a 16:9 crop, and store the returned image id in `coverImageId`.
+- Banner uploads use `ImagePurpose.Banner`, a 3:1 crop, and store the returned image id in `bannerImageId`.
+- Embedded uploads use `ImagePurpose.Embedded`; after upload the editor inserts Markdown with the returned `/api/images/{id}` URL.
+- The backend stores image assets as MySQL blobs for now. The frontend should continue to treat image urls as opaque backend URLs.
+
 ## Known Backend Gaps Reflected In UI
 
-- No media/image endpoints exist yet. Post editor exposes `coverImageId` and `bannerImageId` as raw optional IDs only.
 - No total counts exist for paged admin endpoints.
 - Tag names are the tag identifiers. There is no separate tag slug field.

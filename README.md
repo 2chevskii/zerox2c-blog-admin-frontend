@@ -11,12 +11,13 @@ Vue 3 admin frontend for the `0x2c.dev` blog backend.
 - Element Plus for admin UI components.
 - CodeMirror 6 through `vue-codemirror` for the post body editor.
 - `markdown-it` for admin-side Markdown preview rendering.
+- Cropper.js for pan-and-crop image uploads.
 
 ## Implemented Screens
 
 - Login with `/api/auth/login`.
 - Dashboard summary for posts, tags, and users.
-- Post list, create, edit, publish, unpublish, and delete. The post editor supports edit, split edit/preview, and preview-only body modes.
+- Post list, create, edit, publish, unpublish, and delete. The post editor supports edit, split edit/preview, preview-only body modes, cropped cover/banner uploads, and cropped embedded-image insertion.
 - Tag list, create, edit, and delete with kebab-case tag names.
 - User list, block, unblock, SuperAdmin-only role changes, and known superadmin password changes.
 
@@ -69,6 +70,7 @@ If `SuperAdmin:UseDefaultPassword` is `true`, its initial default password is `s
 ```text
 src/
   api/          Typed fetch wrappers for backend endpoints.
+  components/   Reusable controls such as cropped image upload.
   layouts/      Admin shell and navigation.
   router/       Route definitions and auth guard.
   stores/       Pinia stores.

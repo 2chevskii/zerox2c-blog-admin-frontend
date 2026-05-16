@@ -14,6 +14,7 @@ The backend lives at `../blog-backend`. Read the backend `README.md` and archite
 - Keep reusable layout components under `src/layouts/`.
 - Keep backend DTOs in `src/types/api.ts`.
 - Keep endpoint wrappers in `src/api/`, grouped by backend module.
+- Keep reusable non-layout controls in `src/components/`.
 - Keep auth/session state in `src/stores/auth.ts`.
 - Do not add a second UI component library unless the user explicitly asks for it.
 - Prefer Element Plus components over custom control markup for forms, tables, dialogs, messages, and menus.
@@ -28,6 +29,8 @@ The backend lives at `../blog-backend`. Read the backend `README.md` and archite
 - Tags do not have a separate slug field. Tag `name` is unique, lowercase kebab-case, and at most 20 characters.
 - Post slugs are optional in admin forms; the backend generates unique slugs from the title when omitted.
 - Post bodies are edited as Markdown with CodeMirror 6 and previewed in the admin UI with `markdown-it`; the backend still stores `body` as a plain string.
+- Post image uploads use `src/components/ImageUploadCropper.vue`, `src/api/images.ts`, and backend purposes `Cover`, `Banner`, and `Embedded`.
+- Embedded image uploads should insert Markdown pointing to the backend-returned image URL; do not inline base64 images in post bodies.
 - Protected requests require `Authorization: Bearer <token>`.
 - Known technical users cannot be modified through the admin UI except changing the known superadmin password.
 - Local dev relies on the Vite `/api` proxy because the backend currently has no CORS setup.
@@ -37,6 +40,7 @@ The backend lives at `../blog-backend`. Read the backend `README.md` and archite
 
 - This is an operational admin tool, not a marketing site.
 - Keep pages dense, predictable, and scan-friendly.
+- The app uses Element Plus' default dark theme. Use Element Plus CSS variables for custom colors instead of hard-coded light surfaces.
 - Use restrained styling and stable table/form layouts.
 - Avoid visible in-app explanations of how the UI works; labels and actions should be self-evident.
 
@@ -48,4 +52,4 @@ Before finishing implementation changes, run:
 npm run build
 ```
 
-If you start a local dev server during verification, stop it before finishing unless the user asks to keep it running.
+If you start a local dev server during verification, stop it before finishing unless the user explicitly asks to keep it running. Never leave Vite, preview, backend, watcher, or other long-running development processes running after the task is done.

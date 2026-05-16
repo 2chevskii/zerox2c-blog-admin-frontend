@@ -1,0 +1,30 @@
+{
+  "name": "blog-admin-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^25.8.0",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12",
+    "vue-tsc": "^3.2.9"
+  },
+  "dependencies": {
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@element-plus/icons-vue": "^2.3.2",
+    "codemirror": "^6.0.2",
+    "element-plus": "^2.14.0",
+    "markdown-it": "^14.1.1",
+    "pinia": "^3.0.4",
+    "vue": "^3.5.34",
+    "vue-codemirror": "^6.1.1",
+    "vue-router": "^5.0.7"
+  }
+}

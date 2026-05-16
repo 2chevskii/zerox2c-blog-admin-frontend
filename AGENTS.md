@@ -8,6 +8,16 @@ This is the admin frontend for the `0x2c.dev` blog backend. It is a Vue 3 + Type
 
 The backend lives at `../blog-backend`. Read the backend `README.md` and architecture docs before changing API behavior assumptions.
 
+## Related Repositories
+
+This repository is part of the local 0x2c.dev blog workspace:
+
+- `../blog-backend` - ASP.NET Core backend API and persistence.
+- `../blog-frontend` - public Vue frontend for readers.
+- `../blog-admin-frontend` - Vue admin frontend for content management.
+
+Agents may inspect and modify any of these three sibling repositories when a task requires coordinated backend, public frontend, or admin frontend changes. Keep commits focused per repository and do not mix unrelated work.
+
 ## Architecture Rules
 
 - Keep page-level route components under `src/views/`.

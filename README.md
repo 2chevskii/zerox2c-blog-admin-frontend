@@ -10,14 +10,14 @@ Vue 3 admin frontend for the `0x2c.dev` blog backend.
 - Pinia for JWT session state.
 - Element Plus for admin UI components.
 - CodeMirror 6 through `vue-codemirror` for the post body editor.
-- `markdown-it` for admin-side Markdown preview rendering.
+- Backend-rendered Markdown preview HTML.
 - Cropper.js for pan-and-crop image uploads.
 
 ## Implemented Screens
 
 - Login with `/api/auth/login`.
 - Dashboard summary for posts, tags, and users.
-- Post list, create, edit, publish, unpublish, and delete. The post editor supports edit, split edit/preview, preview-only body modes, cropped cover/banner uploads, and cropped embedded-image insertion.
+- Post list, create, edit, publish, unpublish, and delete. The post editor supports edit, split edit/preview, preview-only body modes, cropped cover/banner uploads, post-scoped embedded-image insertion, paste/drop image upload, and local image-path completions.
 - Tag list, create, edit, and delete with kebab-case tag names.
 - User list, block, unblock, SuperAdmin-only role changes, and known superadmin password changes.
 

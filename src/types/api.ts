@@ -64,9 +64,14 @@ export interface AdminPostResponse {
   slug: string | null
   title: string
   subtitle: string | null
-  excerpt: string | null
-  body: string
+  bodyMarkdown: string
+  bodyHtml: string
+  readingMinutes: number
   status: PostStatus
+  likeCount: number
+  dislikeCount: number
+  commentCount: number
+  viewCount: number
   coverImageId: string | null
   bannerImageId: string | null
   tags: TagResponse[]
@@ -84,8 +89,7 @@ export interface CreatePostRequest {
   slug?: string | null
   title: string
   subtitle?: string | null
-  excerpt?: string | null
-  body: string
+  bodyMarkdown: string
   coverImageId?: string | null
   bannerImageId?: string | null
   tagIds?: string[] | null
@@ -101,6 +105,28 @@ export interface ImageResponse {
   purpose: ImagePurpose
   url: string
   createdBy: string
+  createdAt: string
+}
+
+export interface MarkdownDocumentResponse {
+  markdown: string
+  html: string
+  plainText: string
+  readingMinutes: number
+}
+
+export interface RenderMarkdownRequest {
+  markdown: string
+  postId?: string | null
+}
+
+export interface PostMarkdownImageResponse {
+  id: string
+  originalFileName: string
+  contentType: string
+  sizeBytes: number
+  url: string
+  localPath: string
   createdAt: string
 }
 

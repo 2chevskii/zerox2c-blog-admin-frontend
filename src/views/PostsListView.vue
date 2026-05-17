@@ -5,7 +5,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { deletePost, listPosts, publishPost, unpublishPost } from '@/api/posts'
 import type { AdminPostResponse, PostStatus } from '@/types/api'
-import { formatDateTime, truncate } from '@/utils/format'
+import { formatDateTime } from '@/utils/format'
 
 const router = useRouter()
 const loading = ref(false)
@@ -117,7 +117,7 @@ function replacePost(post: AdminPostResponse): void {
         <el-table-column label="Title" min-width="260" show-overflow-tooltip>
           <template #default="{ row }">
             <strong>{{ row.title }}</strong>
-            <div v-if="row.excerpt" class="muted">{{ truncate(row.excerpt, 120) }}</div>
+            <div v-if="row.subtitle" class="muted">{{ row.subtitle }}</div>
           </template>
         </el-table-column>
         <el-table-column label="Slug" min-width="180" show-overflow-tooltip>

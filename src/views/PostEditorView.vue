@@ -1,25 +1,30 @@
 <script setup lang="ts">
+import { autocompletion, type CompletionContext } from '@codemirror/autocomplete'
 import { markdown } from '@codemirror/lang-markdown'
-import { ArrowLeft, Check, Refresh } from '@element-plus/icons-vue'
+import { ArrowLeft, Check, Refresh, Upload } from '@element-plus/icons-vue'
 import { basicSetup, EditorView } from 'codemirror'
 import { ElMessage } from 'element-plus'
-import MarkdownIt from 'markdown-it'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { Codemirror } from 'vue-codemirror'
 import { useRoute, useRouter } from 'vue-router'
-import type { FormInstance, FormRules } from 'element-plus'
-import { createPost, getPost, publishPost, unpublishPost, updatePost } from '@/api/posts'
+import type { FormInstance, FormRules, UploadFile, UploadInstance } from 'element-plus'
+import { createPost, getPost, publishPost, renderMarkdown, unpublishPost, updatePost } from '@/api/posts'
 import ImageUploadCropper from '@/components/ImageUploadCropper.vue'
+import { listPostMarkdownImages, uploadPostMarkdownImage } from '@/api/images'
 import { listTags } from '@/api/tags'
-import type { AdminPostResponse, CreatePostRequest, ImageResponse, TagResponse } from '@/types/api'
+import type {
+  AdminPostResponse,
+  CreatePostRequest,
+  PostMarkdownImageResponse,
+  TagResponse,
+} from '@/types/api'
 import { formatDateTime } from '@/utils/format'
 
 interface PostForm {
   slug: string
   title: string
   subtitle: string
-  excerpt: string
-  body: string
+  bodyMarkdown: string
   coverImageId: string | null
   bannerImageId: string | null
   tagIds: string[]
@@ -30,12 +35,16 @@ type EditorMode = 'edit' | 'split' | 'preview'
 const route = useRoute()
 const router = useRouter()
 const formRef = ref<FormInstance>()
+const markdownUploadRef = ref<UploadInstance>()
 const loading = ref(false)
 const saving = ref(false)
+const previewLoading = ref(false)
 const post = ref<AdminPostResponse | null>(null)
 const tags = ref<TagResponse[]>([])
+const markdownImages = ref<PostMarkdownImageResponse[]>([])
 const editorMode = ref<EditorMode>('edit')
-const embeddedImageId = ref<string | null>(null)
+const editorView = shallowRef<EditorView | null>(null)
+const renderedBody = ref('')
 const postId = computed(() => (typeof route.params.id === 'string' ? route.params.id : ''))
 const isEditing = computed(() => !!postId.value)
 const showBodyEditor = computed(() => editorMode.value !== 'preview')
@@ -48,8 +57,7 @@ const form = reactive<PostForm>({
   slug: '',
   title: '',
   subtitle: '',
-  excerpt: '',
-  body: '',
+  bodyMarkdown: '',
   coverImageId: null,
   bannerImageId: null,
   tagIds: [],
@@ -69,13 +77,42 @@ const rules: FormRules<PostForm> = {
     },
   ],
   subtitle: [{ max: 512, message: 'Subtitle must be at most 512 characters.', trigger: 'blur' }],
-  excerpt: [{ max: 1000, message: 'Excerpt must be at most 1000 characters.', trigger: 'blur' }],
-  body: [{ required: true, message: 'Body is required.', trigger: 'blur' }],
+  bodyMarkdown: [{ required: true, message: 'Body is required.', trigger: 'blur' }],
 }
+
+const markdownImagePasteDropExtension = EditorView.domEventHandlers({
+  paste(event, view) {
+    const files = getImageFiles(event.clipboardData?.files)
+    if (files.length === 0) {
+      return false
+    }
+
+    event.preventDefault()
+    void uploadAndInsertMarkdownImages(files, view)
+    return true
+  },
+  drop(event, view) {
+    const files = getImageFiles(event.dataTransfer?.files)
+    if (files.length === 0) {
+      return false
+    }
+
+    event.preventDefault()
+    const position = view.posAtCoords({ x: event.clientX, y: event.clientY })
+    if (position !== null) {
+      view.dispatch({ selection: { anchor: position } })
+    }
+
+    void uploadAndInsertMarkdownImages(files, view)
+    return true
+  },
+})
 
 const editorExtensions = [
   basicSetup,
   markdown(),
+  autocompletion({ override: [completeMarkdownImages] }),
+  markdownImagePasteDropExtension,
   EditorView.lineWrapping,
   EditorView.theme({
     '&': {
@@ -110,26 +147,28 @@ const editorExtensions = [
   }),
 ]
 
-const markdownRenderer = new MarkdownIt({
-  html: false,
-  linkify: true,
-  typographer: true,
-})
+let previewRenderTimer: ReturnType<typeof setTimeout> | null = null
+let previewRenderRequestId = 0
 
-const renderedBody = computed(() => markdownRenderer.render(form.body))
+watch(() => form.bodyMarkdown, schedulePreviewRender)
 
 onMounted(loadEditor)
+onBeforeUnmount(() => {
+  clearPreviewRenderTimer()
+})
 
 async function loadEditor(): Promise<void> {
   loading.value = true
 
   try {
-    const [tagList, loadedPost] = await Promise.all([
+    const [tagList, loadedPost, loadedImages] = await Promise.all([
       listTags({ limit: 100 }),
       isEditing.value ? getPost(postId.value) : Promise.resolve(null),
+      isEditing.value ? listPostMarkdownImages(postId.value) : Promise.resolve([]),
     ])
 
     tags.value = tagList
+    markdownImages.value = loadedImages
     if (loadedPost) {
       post.value = loadedPost
       applyPost(loadedPost)
@@ -166,6 +205,10 @@ async function save(): Promise<void> {
     if (!isEditing.value) {
       await router.replace(`/posts/${saved.id}`)
     }
+
+    if (postId.value) {
+      markdownImages.value = await listPostMarkdownImages(postId.value)
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : 'Failed to save post.')
   } finally {
@@ -200,11 +243,11 @@ function applyPost(value: AdminPostResponse): void {
   form.slug = value.slug ?? ''
   form.title = value.title
   form.subtitle = value.subtitle ?? ''
-  form.excerpt = value.excerpt ?? ''
-  form.body = value.body
+  form.bodyMarkdown = value.bodyMarkdown
   form.coverImageId = value.coverImageId
   form.bannerImageId = value.bannerImageId
   form.tagIds = value.tags.map((tag) => tag.id)
+  renderedBody.value = value.bodyHtml
 }
 
 function buildRequest(): CreatePostRequest {
@@ -212,8 +255,7 @@ function buildRequest(): CreatePostRequest {
     slug: normalizeOptional(form.slug),
     title: form.title,
     subtitle: normalizeOptional(form.subtitle),
-    excerpt: normalizeOptional(form.excerpt),
-    body: form.body,
+    bodyMarkdown: form.bodyMarkdown,
     coverImageId: form.coverImageId,
     bannerImageId: form.bannerImageId,
     tagIds: form.tagIds,
@@ -226,18 +268,154 @@ function normalizeOptional(value: string): string | null {
 }
 
 function validateBody(): void {
-  const validation = formRef.value?.validateField('body')
+  const validation = formRef.value?.validateField('bodyMarkdown')
   void validation?.catch(() => undefined)
 }
 
-function handleEmbeddedImageUploaded(image: ImageResponse): void {
+function handleEditorReady(payload: { view: EditorView }): void {
+  editorView.value = payload.view
+}
+
+function handleMarkdownImageUploadChange(uploadFile: UploadFile): void {
+  const file = uploadFile.raw
+  markdownUploadRef.value?.clearFiles()
+  if (!file) {
+    return
+  }
+
+  void uploadAndInsertMarkdownImages([file], editorView.value)
+}
+
+async function uploadAndInsertMarkdownImages(
+  files: File[],
+  view: EditorView | null = editorView.value,
+): Promise<void> {
+  if (!isEditing.value) {
+    ElMessage.warning('Save the post before inserting images.')
+    return
+  }
+
+  const imageFiles = files.filter((file) => file.type.startsWith('image/'))
+  if (imageFiles.length === 0) {
+    ElMessage.error('Select an image file.')
+    return
+  }
+
+  saving.value = true
+
+  try {
+    const uploadedImages: PostMarkdownImageResponse[] = []
+    for (const file of imageFiles) {
+      const image = await uploadPostMarkdownImage(postId.value, file)
+      upsertMarkdownImage(image)
+      uploadedImages.push(image)
+    }
+
+    insertMarkdownAtSelection(`${uploadedImages.map(buildMarkdownImage).join('\n')}\n`, view)
+    validateBody()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'Failed to upload image.')
+  } finally {
+    saving.value = false
+  }
+}
+
+function upsertMarkdownImage(image: PostMarkdownImageResponse): void {
+  const existingIndex = markdownImages.value.findIndex((existing) => existing.id === image.id)
+  if (existingIndex >= 0) {
+    markdownImages.value[existingIndex] = image
+    return
+  }
+
+  markdownImages.value = [image, ...markdownImages.value]
+}
+
+function insertMarkdownAtSelection(markdownText: string, view: EditorView | null): void {
+  if (view) {
+    view.dispatch(view.state.replaceSelection(markdownText))
+    view.focus()
+    return
+  }
+
+  form.bodyMarkdown = form.bodyMarkdown.trimEnd()
+    ? `${form.bodyMarkdown.trimEnd()}\n\n${markdownText}`
+    : markdownText
+}
+
+function buildMarkdownImage(image: PostMarkdownImageResponse): string {
   const label = image.originalFileName.replace(/\.[^.]+$/, '').trim() || 'image'
-  const markdownImage = `![${escapeMarkdownLabel(label)}](${image.url})`
-  form.body = form.body.trimEnd()
-    ? `${form.body.trimEnd()}\n\n${markdownImage}\n`
-    : `${markdownImage}\n`
-  embeddedImageId.value = null
-  validateBody()
+  return `![${escapeMarkdownLabel(label)}](${image.localPath})`
+}
+
+function completeMarkdownImages(context: CompletionContext) {
+  if (markdownImages.value.length === 0) {
+    return null
+  }
+
+  const match = context.matchBefore(/(?:\.\/)?images\/[\w-]*/)
+  if (!match && !context.explicit) {
+    return null
+  }
+
+  return {
+    from: match?.from ?? context.pos,
+    options: markdownImages.value.map((image) => ({
+      label: image.originalFileName,
+      type: 'file',
+      detail: image.localPath,
+      apply: image.localPath,
+    })),
+    validFor: /^(?:\.\/)?images\/[\w-]*$/,
+  }
+}
+
+function getImageFiles(fileList: FileList | null | undefined): File[] {
+  return Array.from(fileList ?? []).filter((file) => file.type.startsWith('image/'))
+}
+
+function schedulePreviewRender(): void {
+  clearPreviewRenderTimer()
+
+  if (!form.bodyMarkdown.trim()) {
+    renderedBody.value = ''
+    previewLoading.value = false
+    return
+  }
+
+  previewRenderTimer = setTimeout(() => {
+    void renderPreview()
+  }, 350)
+}
+
+async function renderPreview(): Promise<void> {
+  const requestId = ++previewRenderRequestId
+  previewLoading.value = true
+
+  try {
+    const rendered = await renderMarkdown({
+      markdown: form.bodyMarkdown,
+      postId: isEditing.value ? postId.value : null,
+    })
+
+    if (requestId === previewRenderRequestId) {
+      renderedBody.value = rendered.html
+    }
+  } catch {
+    if (requestId === previewRenderRequestId) {
+      renderedBody.value = ''
+    }
+  } finally {
+    if (requestId === previewRenderRequestId) {
+      previewLoading.value = false
+    }
+  }
+}
+
+function clearPreviewRenderTimer(): void {
+  if (previewRenderTimer) {
+    clearTimeout(previewRenderTimer)
+    previewRenderTimer = null
+  }
 }
 
 function escapeMarkdownLabel(value: string): string {
@@ -287,16 +465,6 @@ function escapeMarkdownLabel(value: string): string {
               <el-input v-model="form.subtitle" maxlength="512" show-word-limit />
             </el-form-item>
 
-            <el-form-item label="Excerpt" prop="excerpt" class="wide">
-              <el-input
-                v-model="form.excerpt"
-                type="textarea"
-                maxlength="1000"
-                show-word-limit
-                :autosize="{ minRows: 3, maxRows: 5 }"
-              />
-            </el-form-item>
-
             <el-form-item label="Cover image">
               <ImageUploadCropper
                 v-model="form.coverImageId"
@@ -319,19 +487,22 @@ function escapeMarkdownLabel(value: string): string {
               />
             </el-form-item>
 
-            <el-form-item prop="body" class="wide body-field">
+            <el-form-item prop="bodyMarkdown" class="wide body-field">
               <template #label>
                 <div class="body-label">
                   <span>Body</span>
                   <div class="body-actions">
-                    <ImageUploadCropper
-                      v-model="embeddedImageId"
-                      compact
-                      label="Embedded image"
-                      purpose="Embedded"
-                      button-label="Insert image"
-                      @uploaded="handleEmbeddedImageUploaded"
-                    />
+                    <el-upload
+                      ref="markdownUploadRef"
+                      :auto-upload="false"
+                      :show-file-list="false"
+                      :limit="1"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      :disabled="!isEditing"
+                      :on-change="handleMarkdownImageUploadChange"
+                    >
+                      <el-button :icon="Upload" :disabled="!isEditing">Insert image</el-button>
+                    </el-upload>
                     <el-radio-group v-model="editorMode" size="small" class="editor-mode-group">
                       <el-radio-button value="edit">Edit</el-radio-button>
                       <el-radio-button value="split">Edit + preview</el-radio-button>
@@ -344,19 +515,20 @@ function escapeMarkdownLabel(value: string): string {
               <div class="body-workspace" :class="bodyWorkspaceClass">
                 <div v-if="showBodyEditor" class="editor-pane">
                   <Codemirror
-                    v-model="form.body"
+                    v-model="form.bodyMarkdown"
                     class="post-body-editor"
                     placeholder="Write the post body in Markdown..."
                     :autofocus="false"
                     :indent-with-tab="true"
                     :tab-size="2"
                     :extensions="editorExtensions"
+                    @ready="handleEditorReady"
                     @blur="validateBody"
                   />
                 </div>
 
-                <div v-if="showBodyPreview" class="preview-pane">
-                  <article v-if="form.body.trim()" class="markdown-preview" v-html="renderedBody" />
+                <div v-if="showBodyPreview" class="preview-pane" v-loading="previewLoading">
+                  <article v-if="form.bodyMarkdown.trim()" class="markdown-preview" v-html="renderedBody" />
                   <div v-else class="preview-empty">Nothing to preview.</div>
                 </div>
               </div>

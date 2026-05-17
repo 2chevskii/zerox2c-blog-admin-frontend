@@ -10,7 +10,7 @@ The app is a Vite-powered Vue 3 SPA. It uses:
 - Pinia for authentication state.
 - Element Plus for the admin component system.
 - CodeMirror 6 via `vue-codemirror` for editing post bodies.
-- `markdown-it` for admin-side Markdown preview rendering with raw HTML disabled.
+- Backend-rendered Markdown preview HTML from `/api/admin/markdown/render`.
 - Cropper.js for client-side image panning/cropping before upload.
 - Native `fetch` through a small typed wrapper in `src/api/http.ts`.
 
@@ -54,20 +54,22 @@ Global styling lives in `src/styles.css`. The app uses Element Plus' default dar
 
 ## Post Editing
 
-`PostEditorView` treats the `body` field as Markdown in the admin UI. The backend still stores the body as a plain string; Markdown parsing is only used to render the local preview.
+`PostEditorView` treats `bodyMarkdown` as the editable Markdown source. The backend owns Markdown parsing, sanitization, image-path resolution, and preview rendering.
 
 The body editor uses three modes:
 
 - `Edit`: CodeMirror editor only.
-- `Edit + preview`: CodeMirror and rendered Markdown side by side on desktop, stacked on narrow screens.
-- `Preview`: rendered Markdown only.
+- `Edit + preview`: CodeMirror and backend-rendered HTML side by side on desktop, stacked on narrow screens.
+- `Preview`: backend-rendered HTML only.
 
 Image uploads:
 
 - `ImageUploadCropper` wraps Element Plus upload/dialog controls and Cropper.js.
 - Cover uploads use `ImagePurpose.Cover`, a 16:9 crop, and store the returned image id in `coverImageId`.
 - Banner uploads use `ImagePurpose.Banner`, a 3:1 crop, and store the returned image id in `bannerImageId`.
-- Embedded uploads use `ImagePurpose.Embedded`; after upload the editor inserts Markdown with the returned `/api/images/{id}` URL.
+- Embedded Markdown images upload through `/api/admin/posts/{id}/markdown/images`; after upload the editor inserts Markdown with the returned local path such as `images/{imageId}`.
+- Clipboard paste and drag-and-drop image insertion use the same post-scoped endpoint.
+- CodeMirror completions suggest attached image local paths.
 - The backend stores image assets as MySQL blobs for now. The frontend should continue to treat image urls as opaque backend URLs.
 
 ## Known Backend Gaps Reflected In UI

@@ -38,9 +38,9 @@ Agents may inspect and modify any of these three sibling repositories when a tas
   - `PostStatus`: `Draft`, `Published`.
 - Tags do not have a separate slug field. Tag `name` is unique, lowercase kebab-case, and at most 20 characters.
 - Post slugs are optional in admin forms; the backend generates unique slugs from the title when omitted.
-- Post bodies are edited as Markdown with CodeMirror 6 and previewed in the admin UI with `markdown-it`; the backend still stores `body` as a plain string.
+- Post bodies are edited as Markdown with CodeMirror 6. Preview HTML comes from the backend Markdown render endpoint; do not add frontend Markdown renderers.
 - Post image uploads use `src/components/ImageUploadCropper.vue`, `src/api/images.ts`, and backend purposes `Cover`, `Banner`, and `Embedded`.
-- Embedded image uploads should insert Markdown pointing to the backend-returned image URL; do not inline base64 images in post bodies.
+- Embedded Markdown images are uploaded through post-scoped Markdown image APIs and inserted with backend-returned local paths such as `images/{imageId}`; do not inline base64 images in post bodies.
 - Protected requests require `Authorization: Bearer <token>`.
 - Known technical users cannot be modified through the admin UI except changing the known superadmin password.
 - Local dev relies on the Vite `/api` proxy because the backend currently has no CORS setup.

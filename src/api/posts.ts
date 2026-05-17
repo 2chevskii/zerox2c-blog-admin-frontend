@@ -1,7 +1,9 @@
 import type {
   AdminPostResponse,
   CreatePostRequest,
+  MarkdownDocumentResponse,
   PostListQuery,
+  RenderMarkdownRequest,
   UpdatePostRequest,
 } from '@/types/api'
 import { apiRequest, jsonRequest, toQueryString } from './http'
@@ -39,4 +41,8 @@ export function unpublishPost(id: string): Promise<AdminPostResponse> {
 
 export function deletePost(id: string): Promise<void> {
   return apiRequest<void>(`/api/admin/posts/${id}`, { method: 'DELETE' })
+}
+
+export function renderMarkdown(request: RenderMarkdownRequest): Promise<MarkdownDocumentResponse> {
+  return jsonRequest<MarkdownDocumentResponse>('/api/admin/markdown/render', 'POST', request)
 }

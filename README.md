@@ -80,3 +80,7 @@ src/
 ```
 
 Keep backend DTO changes mirrored in `src/types/api.ts` and the matching `src/api/*.ts` module.
+
+## Deployment
+
+Deployment process, required GitHub Environment secrets, branching behavior, and VPS paths are documented in `docs/deployment.md`.

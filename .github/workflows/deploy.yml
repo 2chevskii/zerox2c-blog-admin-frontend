@@ -31,6 +31,16 @@ jobs:
         shell: bash
         run: bash scripts/resolve-deployment-context.sh
 
+      - name: Log resolved deployment context
+        shell: bash
+        run: |
+          echo "event=${GITHUB_EVENT_NAME}"
+          echo "ref=${GITHUB_REF_NAME}"
+          echo "sha=${GITHUB_SHA}"
+          echo "deploy=${{ steps.vars.outputs.deploy }}"
+          echo "environment=${{ steps.vars.outputs.environment }}"
+          echo "environment_url=${{ steps.vars.outputs.environment_url }}"
+
   build:
     name: Build admin frontend
     runs-on: ubuntu-latest
@@ -44,11 +54,22 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Log Node environment
+        run: |
+          node --version
+          npm --version
+
       - name: Install dependencies
-        run: npm ci
+        run: |
+          echo "Installing dependencies with npm ci"
+          npm ci
 
       - name: Build
-        run: npm run build
+        run: |
+          echo "Building admin static files"
+          npm run build
+          echo "Build output:"
+          find dist -maxdepth 2 -type f | sort
 
       - name: Upload static artifact
         uses: actions/upload-artifact@v4
@@ -89,4 +110,8 @@ jobs:
 
       - name: Deploy over SSH
         shell: bash
-        run: bash scripts/deploy.sh
+        run: |
+          echo "Deploying admin static artifact"
+          echo "GitHub Environment: ${DEPLOY_ENVIRONMENT}"
+          echo "Deploy root: ${DEPLOY_ROOT:-/opt/0x2c-blog}"
+          bash scripts/deploy.sh

@@ -13,13 +13,15 @@ require_env VPS_HOST
 require_env VPS_SSH_USER
 require_env VPS_SSH_PRIVATE_KEY
 require_env DEPLOY_ENVIRONMENT
-require_env IMAGE
-require_env DEFAULT_APP_PORT
 
 VPS_SSH_PORT="${VPS_SSH_PORT:-22}"
 DEPLOY_ROOT="${DEPLOY_ROOT:-/opt/0x2c-blog}"
-APP_HOST="${APP_HOST:-127.0.0.1}"
-APP_PORT="${APP_PORT:-${DEFAULT_APP_PORT}}"
+DIST_DIR="${DIST_DIR:-dist}"
+
+if [[ ! -f "${DIST_DIR}/index.html" ]]; then
+  echo "Missing ${DIST_DIR}/index.html. Build or download the frontend artifact before deploying." >&2
+  exit 1
+fi
 
 ssh_dir="$(mktemp -d)"
 payload_dir="$(mktemp -d)"
@@ -35,14 +37,7 @@ printf '%s\n' "${VPS_SSH_PRIVATE_KEY}" > "${key_path}"
 chmod 600 "${key_path}"
 ssh-keyscan -p "${VPS_SSH_PORT}" "${VPS_HOST}" > "${known_hosts_path}"
 
-cat > "${payload_dir}/compose.yaml" <<COMPOSE
-services:
-  admin:
-    image: ${IMAGE}
-    restart: unless-stopped
-    ports:
-      - "${APP_HOST}:${APP_PORT}:8080"
-COMPOSE
+tar -czf "${payload_dir}/admin-static.tar.gz" -C "${DIST_DIR}" .
 
 target="${VPS_SSH_USER}@${VPS_HOST}"
 deploy_dir="${DEPLOY_ROOT}/${DEPLOY_ENVIRONMENT}/admin"
@@ -57,18 +52,7 @@ scp \
   -i "${key_path}" \
   -P "${VPS_SSH_PORT}" \
   -o "UserKnownHostsFile=${known_hosts_path}" \
-  "${payload_dir}/compose.yaml" \
+  "${payload_dir}/admin-static.tar.gz" \
   "${target}:${deploy_dir}/"
 
-ssh "${ssh_options[@]}" "${target}" "cd '${deploy_dir}' && docker compose pull && docker compose up -d --remove-orphans"
-
-for attempt in {1..30}; do
-  if ssh "${ssh_options[@]}" "${target}" "curl --fail --silent --show-error 'http://${APP_HOST}:${APP_PORT}/admin/' >/dev/null"; then
-    exit 0
-  fi
-
-  sleep 1
-done
-
-ssh "${ssh_options[@]}" "${target}" "cd '${deploy_dir}' && docker compose logs admin --tail=120"
-exit 1
+ssh "${ssh_options[@]}" "${target}" "cd '${deploy_dir}' && rm -rf www.next && mkdir -p www.next && tar -xzf admin-static.tar.gz -C www.next && rm -rf www.previous && if [ -d www ]; then mv www www.previous; fi && mv www.next www && rm -f admin-static.tar.gz && test -f www/index.html"

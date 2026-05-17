@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import Cropper from 'cropperjs'
-import { Delete, Upload } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { Trash2, Upload } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import type { UploadFile, UploadInstance } from 'element-plus'
 import { getImageUrl, uploadImage } from '@/api/images'
+import { useToast } from '@/composables/useToast'
 import type { ImagePurpose, ImageResponse } from '@/types/api'
 
 const props = withDefaults(
@@ -32,9 +31,10 @@ const emit = defineEmits<{
   uploaded: [image: ImageResponse]
 }>()
 
+const toast = useToast()
 const dialogVisible = ref(false)
 const imageElement = ref<HTMLImageElement>()
-const uploadRef = ref<UploadInstance>()
+const fileInput = ref<HTMLInputElement>()
 const objectUrl = ref<string | null>(null)
 const selectedFile = ref<File | null>(null)
 const uploading = ref(false)
@@ -59,19 +59,25 @@ onBeforeUnmount(() => {
   revokeObjectUrl()
 })
 
-function handleUploadChange(uploadFile: UploadFile): void {
-  const file = uploadFile.raw
+function openFilePicker(): void {
+  fileInput.value?.click()
+}
+
+function handleFileChange(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  input.value = ''
+
   if (!file) {
     return
   }
 
   if (!file.type.startsWith('image/')) {
-    ElMessage.error('Select an image file.')
+    toast.error('Select an image file.')
     return
   }
 
   selectedFile.value = file
-  uploadRef.value?.clearFiles()
   revokeObjectUrl()
   objectUrl.value = URL.createObjectURL(file)
   dialogVisible.value = true
@@ -90,7 +96,7 @@ async function uploadCroppedImage(): Promise<void> {
     imageSmoothingQuality: 'high',
   })
   if (!canvas) {
-    ElMessage.error('Failed to crop image.')
+    toast.error('Failed to crop image.')
     return
   }
 
@@ -107,9 +113,9 @@ async function uploadCroppedImage(): Promise<void> {
     emit('update:modelValue', image.id)
     emit('uploaded', image)
     dialogVisible.value = false
-    ElMessage.success('Image uploaded.')
+    toast.success('Image uploaded.')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Failed to upload image.')
+    toast.error(error instanceof Error ? error.message : 'Failed to upload image.')
   } finally {
     uploading.value = false
   }
@@ -179,83 +185,59 @@ function buildOutputFileName(fileName: string, mimeType: string): string {
 </script>
 
 <template>
-  <div class="image-upload-cropper">
-    <div v-if="hasImage && !compact" class="image-preview">
-      <img :src="previewUrl" :alt="label" />
+  <div class="grid gap-3">
+    <div
+      v-if="hasImage && !compact"
+      class="grid min-h-40 overflow-hidden rounded-xl border border-mist-50/10 bg-[#303030] shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
+    >
+      <img :src="previewUrl" :alt="label" class="h-full max-h-56 w-full object-cover">
     </div>
-    <div v-else-if="!compact" class="image-placeholder">
-      <span>No image</span>
+    <div
+      v-else-if="!compact"
+      class="grid min-h-40 place-items-center rounded-xl border border-mist-50/10 bg-[#303030] text-sm font-semibold text-mist-300"
+    >
+      No image
     </div>
 
-    <div class="image-actions">
-      <el-upload
-        ref="uploadRef"
-        :auto-upload="false"
-        :show-file-list="false"
-        :limit="1"
+    <div class="flex flex-wrap gap-2">
+      <input
+        ref="fileInput"
+        class="hidden"
+        type="file"
         accept="image/jpeg,image/png,image/webp,image/gif"
-        :on-change="handleUploadChange"
+        @change="handleFileChange"
       >
-        <el-button :icon="Upload">{{ uploadButtonLabel }}</el-button>
-      </el-upload>
-      <el-button v-if="hasImage && !compact" :icon="Delete" @click="removeImage">Clear</el-button>
+      <button type="button" class="button" @click="openFilePicker">
+        <Upload class="h-4 w-4" />
+        {{ uploadButtonLabel }}
+      </button>
+      <button v-if="hasImage && !compact" type="button" class="button" @click="removeImage">
+        <Trash2 class="h-4 w-4" />
+        Clear
+      </button>
     </div>
 
-    <el-dialog v-model="dialogVisible" title="Crop image" width="860px" destroy-on-close>
-      <div class="cropper-frame">
-        <img v-if="objectUrl" ref="imageElement" :src="objectUrl" alt="" />
+    <Teleport to="body">
+      <div v-if="dialogVisible" class="fixed inset-0 z-[60] grid place-items-center bg-[#1d1d1d]/70 p-4 backdrop-blur-[6px]">
+        <section
+          class="grid w-[min(100%,54rem)] gap-5 rounded-xl border border-mist-50/12 bg-[#252525] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.42)]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="crop-dialog-title"
+        >
+          <h2 id="crop-dialog-title" class="font-display text-2xl font-bold leading-none text-mist-50">Crop image</h2>
+          <div class="h-[min(66vh,35rem)] overflow-hidden rounded-xl bg-ink-950">
+            <img v-if="objectUrl" ref="imageElement" :src="objectUrl" alt="" class="block max-w-full">
+          </div>
+          <div class="flex flex-wrap justify-end gap-2">
+            <button type="button" class="button" @click="dialogVisible = false">Cancel</button>
+            <button type="button" class="button button-primary" :disabled="uploading" @click="uploadCroppedImage">
+              <span v-if="uploading" class="h-4 w-4 animate-spin rounded-full border-2 border-brass-100/70 border-t-transparent" />
+              Upload
+            </button>
+          </div>
+        </section>
       </div>
-      <template #footer>
-        <el-button @click="dialogVisible = false">Cancel</el-button>
-        <el-button type="primary" :loading="uploading" @click="uploadCroppedImage">
-          Upload
-        </el-button>
-      </template>
-    </el-dialog>
+    </Teleport>
   </div>
 </template>
-
-<style scoped>
-.image-upload-cropper {
-  display: grid;
-  gap: 10px;
-}
-
-.image-preview,
-.image-placeholder {
-  display: grid;
-  min-height: 150px;
-  overflow: hidden;
-  place-items: center;
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
-  background: var(--el-fill-color-light);
-}
-
-.image-preview img {
-  width: 100%;
-  height: 100%;
-  max-height: 220px;
-  object-fit: cover;
-}
-
-.image-placeholder {
-  color: var(--el-text-color-secondary);
-}
-
-.image-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.cropper-frame {
-  height: min(66vh, 560px);
-  background: var(--el-fill-color-darker);
-}
-
-.cropper-frame img {
-  display: block;
-  max-width: 100%;
-}
-</style>

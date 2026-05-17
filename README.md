@@ -8,7 +8,7 @@ Vue 3 admin frontend for the `0x2c.dev` blog backend.
 - Vite for local development and builds.
 - Vue Router for page routing and auth guards.
 - Pinia for JWT session state.
-- Element Plus for admin UI components.
+- Tailwind CSS v4 and Lucide Vue icons for the admin UI.
 - CodeMirror 6 through `vue-codemirror` for the post body editor.
 - Backend-rendered Markdown preview HTML.
 - Cropper.js for pan-and-crop image uploads.
@@ -70,7 +70,7 @@ If `SuperAdmin:UseDefaultPassword` is `true`, its initial default password is `s
 ```text
 src/
   api/          Typed fetch wrappers for backend endpoints.
-  components/   Reusable controls such as cropped image upload.
+  components/   Reusable controls such as cropped image upload, toasts, and confirms.
   layouts/      Admin shell and navigation.
   router/       Route definitions and auth guard.
   stores/       Pinia stores.

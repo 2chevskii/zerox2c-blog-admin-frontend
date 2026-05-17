@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { Key, Lock, Refresh, Unlock } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { KeyRound, Lock, RefreshCw, Unlock } from '@lucide/vue'
 import { onMounted, reactive, ref } from 'vue'
+import EmptyState from '@/components/EmptyState.vue'
+import LoadingState from '@/components/LoadingState.vue'
 import type { AdminUserResponse, UserRole } from '@/types/api'
 import {
   blockUser,
@@ -10,16 +11,19 @@ import {
   updateUserPassword,
   updateUserRole,
 } from '@/api/users'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
 
 const auth = useAuthStore()
+const toast = useToast()
 const loading = ref(false)
 const saving = ref(false)
 const users = ref<AdminUserResponse[]>([])
 const blockDialogVisible = ref(false)
 const passwordDialogVisible = ref(false)
 const selectedUser = ref<AdminUserResponse | null>(null)
+const passwordError = ref('')
 const blockForm = reactive({
   reason: '',
 })
@@ -37,7 +41,7 @@ async function loadUsers(): Promise<void> {
   try {
     users.value = await listUsers()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Failed to load users.')
+    toast.error(error instanceof Error ? error.message : 'Failed to load users.')
   } finally {
     loading.value = false
   }
@@ -49,13 +53,18 @@ async function changeRole(user: AdminUserResponse, role: UserRole): Promise<void
   try {
     const updated = await updateUserRole(user.id, role)
     replaceUser(updated)
-    ElMessage.success('Role updated.')
+    toast.success('Role updated.')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Failed to update role.')
+    toast.error(error instanceof Error ? error.message : 'Failed to update role.')
     await loadUsers()
   } finally {
     saving.value = false
   }
+}
+
+function handleRoleChange(user: AdminUserResponse, event: Event): void {
+  const select = event.target as HTMLSelectElement
+  void changeRole(user, select.value as UserRole)
 }
 
 function openBlockDialog(user: AdminUserResponse): void {
@@ -67,6 +76,7 @@ function openBlockDialog(user: AdminUserResponse): void {
 function openPasswordDialog(user: AdminUserResponse): void {
   selectedUser.value = user
   passwordForm.password = ''
+  passwordError.value = ''
   passwordDialogVisible.value = true
 }
 
@@ -82,9 +92,9 @@ async function submitBlock(): Promise<void> {
     const updated = await blockUser(selectedUser.value.id, reason)
     replaceUser(updated)
     blockDialogVisible.value = false
-    ElMessage.success('User blocked.')
+    toast.success('User blocked.')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Failed to block user.')
+    toast.error(error instanceof Error ? error.message : 'Failed to block user.')
   } finally {
     saving.value = false
   }
@@ -96,17 +106,23 @@ async function submitUnblock(user: AdminUserResponse): Promise<void> {
   try {
     const updated = await unblockUser(user.id)
     replaceUser(updated)
-    ElMessage.success('User unblocked.')
+    toast.success('User unblocked.')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Failed to unblock user.')
+    toast.error(error instanceof Error ? error.message : 'Failed to unblock user.')
   } finally {
     saving.value = false
   }
 }
 
 async function submitPassword(): Promise<void> {
-  if (!selectedUser.value || passwordForm.password.length < 8) {
-    ElMessage.error('Password must be at least 8 characters.')
+  passwordError.value = ''
+
+  if (!selectedUser.value) {
+    return
+  }
+
+  if (passwordForm.password.length < 8) {
+    passwordError.value = 'Password must be at least 8 characters.'
     return
   }
 
@@ -116,9 +132,9 @@ async function submitPassword(): Promise<void> {
     const updated = await updateUserPassword(selectedUser.value.id, passwordForm.password)
     replaceUser(updated)
     passwordDialogVisible.value = false
-    ElMessage.success('Password updated.')
+    toast.success('Password updated.')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Failed to update password.')
+    toast.error(error instanceof Error ? error.message : 'Failed to update password.')
   } finally {
     saving.value = false
   }
@@ -130,117 +146,155 @@ function replaceUser(user: AdminUserResponse): void {
 </script>
 
 <template>
-  <section class="page">
-    <div class="page-header">
+  <section class="admin-page">
+    <div class="admin-page-header">
       <div>
-        <h1>Users</h1>
-        <p>Review accounts, block writes, and manage allowed account changes.</p>
+        <h1 class="admin-title">Users</h1>
+        <p class="admin-subtitle">Review accounts, block writes, and manage allowed account changes.</p>
       </div>
-      <el-button :icon="Refresh" @click="loadUsers">Refresh</el-button>
+      <button type="button" class="button" :disabled="loading" @click="loadUsers">
+        <RefreshCw class="h-4 w-4" :class="loading ? 'animate-spin' : ''" />
+        Refresh
+      </button>
     </div>
 
-    <div class="panel">
-      <el-table v-loading="loading" :data="users" empty-text="No users found">
-        <el-table-column prop="username" label="Username" min-width="170" show-overflow-tooltip />
-        <el-table-column prop="email" label="Email" min-width="240" show-overflow-tooltip />
-        <el-table-column label="Role" width="190">
-          <template #default="{ row }">
-            <el-select
-              v-model="row.role"
-              :disabled="!auth.isSuperAdmin || row.isKnownUser || saving"
-              size="small"
-              @change="(role: UserRole) => changeRole(row, role)"
-            >
-              <el-option v-for="role in roleOptions" :key="role" :label="role" :value="role" />
-            </el-select>
-          </template>
-        </el-table-column>
-        <el-table-column label="State" width="130">
-          <template #default="{ row }">
-            <el-space wrap>
-              <el-tag :type="row.isBlocked ? 'danger' : 'success'" effect="plain">
-                {{ row.isBlocked ? 'Blocked' : 'Active' }}
-              </el-tag>
-              <el-tag v-if="row.isKnownUser" type="warning" effect="plain">Known</el-tag>
-            </el-space>
-          </template>
-        </el-table-column>
-        <el-table-column label="Created" width="180">
-          <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
-        </el-table-column>
-        <el-table-column label="Actions" width="280" fixed="right">
-          <template #default="{ row }">
-            <span class="table-actions">
-              <el-button
-                v-if="row.canChangePassword && auth.isSuperAdmin"
-                size="small"
-                :icon="Key"
-                :loading="saving"
-                @click="openPasswordDialog(row)"
-              >
-                Password
-              </el-button>
-              <el-button
-                v-if="row.isBlocked"
-                size="small"
-                :icon="Unlock"
-                :disabled="row.isKnownUser"
-                :loading="saving"
-                @click="submitUnblock(row)"
-              >
-                Unblock
-              </el-button>
-              <el-button
-                v-else
-                size="small"
-                type="danger"
-                :icon="Lock"
-                :disabled="row.isKnownUser"
-                :loading="saving"
-                @click="openBlockDialog(row)"
-              >
+    <div class="admin-panel">
+      <div v-if="loading && users.length === 0" class="admin-panel-body">
+        <LoadingState />
+      </div>
+      <EmptyState
+        v-else-if="users.length === 0"
+        title="No users"
+        message="No accounts are available from the admin API."
+      />
+      <div v-else class="admin-table-wrap" :class="loading ? 'opacity-70' : ''">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Email</th>
+              <th class="w-52">Role</th>
+              <th class="w-44">State</th>
+              <th class="w-52">Created</th>
+              <th class="w-72">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="user in users" :key="user.id">
+              <td>
+                <strong class="block max-w-xs truncate text-mist-50">{{ user.username }}</strong>
+              </td>
+              <td>
+                <span class="block max-w-sm truncate text-mist-300">{{ user.email }}</span>
+              </td>
+              <td>
+                <select
+                  v-model="user.role"
+                  class="control min-h-9 py-1.5"
+                  :disabled="!auth.isSuperAdmin || user.isKnownUser || saving"
+                  @change="handleRoleChange(user, $event)"
+                >
+                  <option v-for="role in roleOptions" :key="role" :value="role">{{ role }}</option>
+                </select>
+              </td>
+              <td>
+                <div class="flex flex-wrap gap-2">
+                  <span class="badge" :class="user.isBlocked ? 'badge-danger' : 'badge-success'">
+                    {{ user.isBlocked ? 'Blocked' : 'Active' }}
+                  </span>
+                  <span v-if="user.isKnownUser" class="badge badge-accent">Known</span>
+                </div>
+              </td>
+              <td class="text-mist-300">{{ formatDateTime(user.createdAt) }}</td>
+              <td>
+                <span class="table-actions">
+                  <button
+                    v-if="user.canChangePassword && auth.isSuperAdmin"
+                    type="button"
+                    class="button min-h-9 px-3 py-1.5"
+                    :disabled="saving"
+                    @click="openPasswordDialog(user)"
+                  >
+                    <KeyRound class="h-4 w-4" />
+                    Password
+                  </button>
+                  <button
+                    v-if="user.isBlocked"
+                    type="button"
+                    class="button min-h-9 px-3 py-1.5"
+                    :disabled="user.isKnownUser || saving"
+                    @click="submitUnblock(user)"
+                  >
+                    <Unlock class="h-4 w-4" />
+                    Unblock
+                  </button>
+                  <button
+                    v-else
+                    type="button"
+                    class="button button-danger min-h-9 px-3 py-1.5"
+                    :disabled="user.isKnownUser || saving"
+                    @click="openBlockDialog(user)"
+                  >
+                    <Lock class="h-4 w-4" />
+                    Block
+                  </button>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <Teleport to="body">
+      <div v-if="blockDialogVisible" class="fixed inset-0 z-[60] grid place-items-center bg-[#1d1d1d]/70 p-4 backdrop-blur-[6px]">
+        <section class="grid w-[min(100%,32rem)] gap-5 rounded-xl border border-mist-50/12 bg-[#252525] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.42)]" role="dialog" aria-modal="true">
+          <h2 class="font-display text-2xl font-bold leading-none text-mist-50">Block user</h2>
+          <form class="grid gap-4" @submit.prevent="submitBlock">
+            <label class="block">
+              <span class="field-label">Reason</span>
+              <textarea v-model="blockForm.reason" class="control textarea-control" maxlength="512" />
+            </label>
+            <div class="flex flex-wrap justify-end gap-2">
+              <button type="button" class="button" @click="blockDialogVisible = false">Cancel</button>
+              <button type="submit" class="button button-danger" :disabled="saving">
+                <span v-if="saving" class="h-4 w-4 animate-spin rounded-full border-2 border-ember-100/70 border-t-transparent" />
                 Block
-              </el-button>
-            </span>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </Teleport>
 
-    <el-dialog v-model="blockDialogVisible" title="Block user" width="520px">
-      <el-form :model="blockForm" label-position="top">
-        <el-form-item label="Reason">
-          <el-input
-            v-model="blockForm.reason"
-            type="textarea"
-            maxlength="512"
-            show-word-limit
-            :autosize="{ minRows: 3, maxRows: 6 }"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="blockDialogVisible = false">Cancel</el-button>
-        <el-button type="danger" :loading="saving" @click="submitBlock">Block</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="passwordDialogVisible" title="Change password" width="520px">
-      <el-form :model="passwordForm" label-position="top">
-        <el-form-item label="New password">
-          <el-input
-            v-model="passwordForm.password"
-            type="password"
-            maxlength="256"
-            show-password
-            autocomplete="new-password"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="passwordDialogVisible = false">Cancel</el-button>
-        <el-button type="primary" :loading="saving" @click="submitPassword">Save</el-button>
-      </template>
-    </el-dialog>
+    <Teleport to="body">
+      <div v-if="passwordDialogVisible" class="fixed inset-0 z-[60] grid place-items-center bg-[#1d1d1d]/70 p-4 backdrop-blur-[6px]">
+        <section class="grid w-[min(100%,32rem)] gap-5 rounded-xl border border-mist-50/12 bg-[#252525] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.42)]" role="dialog" aria-modal="true">
+          <h2 class="font-display text-2xl font-bold leading-none text-mist-50">Change password</h2>
+          <form class="grid gap-4" @submit.prevent="submitPassword">
+            <label class="block">
+              <span class="field-label">New password</span>
+              <input
+                v-model="passwordForm.password"
+                class="control"
+                type="password"
+                maxlength="256"
+                autocomplete="new-password"
+                :aria-invalid="Boolean(passwordError)"
+                @blur="passwordError = passwordForm.password.length >= 8 ? '' : passwordError"
+              >
+              <span v-if="passwordError" class="field-error">{{ passwordError }}</span>
+            </label>
+            <div class="flex flex-wrap justify-end gap-2">
+              <button type="button" class="button" @click="passwordDialogVisible = false">Cancel</button>
+              <button type="submit" class="button button-primary" :disabled="saving">
+                <span v-if="saving" class="h-4 w-4 animate-spin rounded-full border-2 border-brass-100/70 border-t-transparent" />
+                Save
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </Teleport>
   </section>
 </template>

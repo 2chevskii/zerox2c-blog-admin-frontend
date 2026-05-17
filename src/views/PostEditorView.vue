@@ -1,17 +1,16 @@
 <script setup lang="ts">
 import { autocompletion, type CompletionContext } from '@codemirror/autocomplete'
 import { markdown } from '@codemirror/lang-markdown'
-import { ArrowLeft, Check, Refresh, Upload } from '@element-plus/icons-vue'
+import { ArrowLeft, Check, ImagePlus, RefreshCw } from '@lucide/vue'
 import { basicSetup, EditorView } from 'codemirror'
-import { ElMessage } from 'element-plus'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { Codemirror } from 'vue-codemirror'
 import { useRoute, useRouter } from 'vue-router'
-import type { FormInstance, FormRules, UploadFile, UploadInstance } from 'element-plus'
 import { createPost, getPost, publishPost, renderMarkdown, unpublishPost, updatePost } from '@/api/posts'
 import ImageUploadCropper from '@/components/ImageUploadCropper.vue'
 import { listPostMarkdownImages, uploadPostMarkdownImage } from '@/api/images'
 import { listTags } from '@/api/tags'
+import { useToast } from '@/composables/useToast'
 import type {
   AdminPostResponse,
   CreatePostRequest,
@@ -31,11 +30,12 @@ interface PostForm {
 }
 
 type EditorMode = 'edit' | 'split' | 'preview'
+type PostFormField = keyof Pick<PostForm, 'slug' | 'title' | 'subtitle' | 'bodyMarkdown'>
 
 const route = useRoute()
 const router = useRouter()
-const formRef = ref<FormInstance>()
-const markdownUploadRef = ref<UploadInstance>()
+const toast = useToast()
+const markdownFileInput = ref<HTMLInputElement>()
 const loading = ref(false)
 const saving = ref(false)
 const previewLoading = ref(false)
@@ -45,6 +45,7 @@ const markdownImages = ref<PostMarkdownImageResponse[]>([])
 const editorMode = ref<EditorMode>('edit')
 const editorView = shallowRef<EditorView | null>(null)
 const renderedBody = ref('')
+const tagSearch = ref('')
 const postId = computed(() => (typeof route.params.id === 'string' ? route.params.id : ''))
 const isEditing = computed(() => !!postId.value)
 const showBodyEditor = computed(() => editorMode.value !== 'preview')
@@ -52,6 +53,20 @@ const showBodyPreview = computed(() => editorMode.value !== 'edit')
 const bodyWorkspaceClass = computed(() => ({
   'is-split': editorMode.value === 'split',
 }))
+const filteredTags = computed(() => {
+  const search = tagSearch.value.trim().toLowerCase()
+  if (!search) {
+    return tags.value
+  }
+
+  return tags.value.filter((tag) => tag.name.includes(search))
+})
+
+const editorModeOptions: { value: EditorMode; label: string }[] = [
+  { value: 'edit', label: 'Edit' },
+  { value: 'split', label: 'Edit + preview' },
+  { value: 'preview', label: 'Preview' },
+]
 
 const form = reactive<PostForm>({
   slug: '',
@@ -63,22 +78,12 @@ const form = reactive<PostForm>({
   tagIds: [],
 })
 
-const rules: FormRules<PostForm> = {
-  title: [
-    { required: true, message: 'Title is required.', trigger: 'blur' },
-    { max: 256, message: 'Title must be at most 256 characters.', trigger: 'blur' },
-  ],
-  slug: [
-    { max: 160, message: 'Slug must be at most 160 characters.', trigger: 'blur' },
-    {
-      pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-      message: 'Use lowercase letters, numbers, and hyphen-separated segments.',
-      trigger: 'blur',
-    },
-  ],
-  subtitle: [{ max: 512, message: 'Subtitle must be at most 512 characters.', trigger: 'blur' }],
-  bodyMarkdown: [{ required: true, message: 'Body is required.', trigger: 'blur' }],
-}
+const errors = reactive<Record<PostFormField, string>>({
+  slug: '',
+  title: '',
+  subtitle: '',
+  bodyMarkdown: '',
+})
 
 const markdownImagePasteDropExtension = EditorView.domEventHandlers({
   paste(event, view) {
@@ -118,11 +123,11 @@ const editorExtensions = [
     '&': {
       minHeight: '560px',
       fontSize: '14px',
-      backgroundColor: 'var(--el-bg-color)',
-      color: 'var(--el-text-color-primary)',
+      backgroundColor: '#252525',
+      color: '#f4ead9',
     },
     '.cm-scroller': {
-      fontFamily: '"JetBrains Mono", "SFMono-Regular", Consolas, monospace',
+      fontFamily: '"IBM Plex Mono", "Cascadia Code", Consolas, monospace',
     },
     '.cm-content': {
       padding: '14px 0',
@@ -131,18 +136,18 @@ const editorExtensions = [
       padding: '0 14px',
     },
     '.cm-gutters': {
-      backgroundColor: 'var(--el-fill-color-light)',
-      borderRightColor: 'var(--el-border-color)',
-      color: 'var(--el-text-color-secondary)',
+      backgroundColor: '#303030',
+      borderRightColor: 'rgba(255, 249, 238, 0.1)',
+      color: '#bba98f',
     },
     '.cm-activeLine, .cm-activeLineGutter': {
-      backgroundColor: 'var(--el-fill-color)',
+      backgroundColor: 'rgba(255, 249, 238, 0.045)',
     },
     '.cm-cursor': {
-      borderLeftColor: 'var(--el-text-color-primary)',
+      borderLeftColor: '#ffe7ad',
     },
     '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-      backgroundColor: 'var(--el-color-primary-light-5)',
+      backgroundColor: 'rgba(240, 201, 120, 0.28)',
     },
   }),
 ]
@@ -174,19 +179,14 @@ async function loadEditor(): Promise<void> {
       applyPost(loadedPost)
     }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Failed to load editor.')
+    toast.error(error instanceof Error ? error.message : 'Failed to load editor.')
   } finally {
     loading.value = false
   }
 }
 
 async function save(): Promise<void> {
-  if (!formRef.value) {
-    return
-  }
-
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) {
+  if (!validateForm()) {
     return
   }
 
@@ -200,17 +200,15 @@ async function save(): Promise<void> {
 
     post.value = saved
     applyPost(saved)
-    ElMessage.success('Post saved.')
+    toast.success('Post saved.')
 
     if (!isEditing.value) {
       await router.replace(`/posts/${saved.id}`)
     }
 
-    if (postId.value) {
-      markdownImages.value = await listPostMarkdownImages(postId.value)
-    }
+    markdownImages.value = await listPostMarkdownImages(saved.id)
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Failed to save post.')
+    toast.error(error instanceof Error ? error.message : 'Failed to save post.')
   } finally {
     saving.value = false
   }
@@ -231,9 +229,9 @@ async function togglePublication(): Promise<void> {
 
     post.value = updated
     applyPost(updated)
-    ElMessage.success(updated.status === 'Published' ? 'Post published.' : 'Post unpublished.')
+    toast.success(updated.status === 'Published' ? 'Post published.' : 'Post unpublished.')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Failed to update publication state.')
+    toast.error(error instanceof Error ? error.message : 'Failed to update publication state.')
   } finally {
     saving.value = false
   }
@@ -248,6 +246,7 @@ function applyPost(value: AdminPostResponse): void {
   form.bannerImageId = value.bannerImageId
   form.tagIds = value.tags.map((tag) => tag.id)
   renderedBody.value = value.bodyHtml
+  clearErrors()
 }
 
 function buildRequest(): CreatePostRequest {
@@ -267,23 +266,70 @@ function normalizeOptional(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function validateForm(): boolean {
+  validateField('title')
+  validateField('slug')
+  validateField('subtitle')
+  validateField('bodyMarkdown')
+
+  return !errors.title && !errors.slug && !errors.subtitle && !errors.bodyMarkdown
+}
+
+function validateField(field: PostFormField): void {
+  if (field === 'title') {
+    errors.title = !form.title.trim()
+      ? 'Title is required.'
+      : form.title.length > 256
+        ? 'Title must be at most 256 characters.'
+        : ''
+  }
+
+  if (field === 'slug') {
+    errors.slug = form.slug.length > 160
+      ? 'Slug must be at most 160 characters.'
+      : form.slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug)
+        ? 'Use lowercase letters, numbers, and hyphen-separated segments.'
+        : ''
+  }
+
+  if (field === 'subtitle') {
+    errors.subtitle = form.subtitle.length > 512 ? 'Subtitle must be at most 512 characters.' : ''
+  }
+
+  if (field === 'bodyMarkdown') {
+    errors.bodyMarkdown = form.bodyMarkdown.trim() ? '' : 'Body is required.'
+  }
+}
+
+function clearErrors(): void {
+  errors.slug = ''
+  errors.title = ''
+  errors.subtitle = ''
+  errors.bodyMarkdown = ''
+}
+
 function validateBody(): void {
-  const validation = formRef.value?.validateField('bodyMarkdown')
-  void validation?.catch(() => undefined)
+  validateField('bodyMarkdown')
 }
 
 function handleEditorReady(payload: { view: EditorView }): void {
   editorView.value = payload.view
 }
 
-function handleMarkdownImageUploadChange(uploadFile: UploadFile): void {
-  const file = uploadFile.raw
-  markdownUploadRef.value?.clearFiles()
-  if (!file) {
+function openMarkdownImagePicker(): void {
+  if (!isEditing.value) {
+    toast.warning('Save the post before inserting images.')
     return
   }
 
-  void uploadAndInsertMarkdownImages([file], editorView.value)
+  markdownFileInput.value?.click()
+}
+
+function handleMarkdownImageFileChange(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const files = getImageFiles(input.files)
+  input.value = ''
+  void uploadAndInsertMarkdownImages(files, editorView.value)
 }
 
 async function uploadAndInsertMarkdownImages(
@@ -291,13 +337,13 @@ async function uploadAndInsertMarkdownImages(
   view: EditorView | null = editorView.value,
 ): Promise<void> {
   if (!isEditing.value) {
-    ElMessage.warning('Save the post before inserting images.')
+    toast.warning('Save the post before inserting images.')
     return
   }
 
   const imageFiles = files.filter((file) => file.type.startsWith('image/'))
   if (imageFiles.length === 0) {
-    ElMessage.error('Select an image file.')
+    toast.error('Select an image file.')
     return
   }
 
@@ -314,7 +360,7 @@ async function uploadAndInsertMarkdownImages(
     insertMarkdownAtSelection(`${uploadedImages.map(buildMarkdownImage).join('\n')}\n`, view)
     validateBody()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Failed to upload image.')
+    toast.error(error instanceof Error ? error.message : 'Failed to upload image.')
   } finally {
     saving.value = false
   }
@@ -424,151 +470,191 @@ function escapeMarkdownLabel(value: string): string {
 </script>
 
 <template>
-  <section class="page" v-loading="loading">
-    <div class="page-header">
+  <section class="admin-page">
+    <div class="admin-page-header">
       <div>
-        <h1>{{ isEditing ? 'Edit post' : 'New post' }}</h1>
-        <p v-if="post">
+        <h1 class="admin-title">{{ isEditing ? 'Edit post' : 'New post' }}</h1>
+        <p v-if="post" class="admin-subtitle">
           {{ post.status }}. Created {{ formatDateTime(post.createdAt) }}.
           <span v-if="post.publishedAt"> Published {{ formatDateTime(post.publishedAt) }}.</span>
         </p>
-        <p v-else>Create a draft post and publish it when ready.</p>
+        <p v-else class="admin-subtitle">Create a draft post and publish it when ready.</p>
       </div>
       <div class="toolbar">
-        <el-button :icon="ArrowLeft" @click="router.push('/posts')">Back</el-button>
-        <el-button v-if="post" :icon="Refresh" @click="togglePublication">
+        <button type="button" class="button" @click="router.push('/posts')">
+          <ArrowLeft class="h-4 w-4" />
+          Back
+        </button>
+        <button v-if="post" type="button" class="button" :disabled="saving" @click="togglePublication">
+          <RefreshCw class="h-4 w-4" :class="saving ? 'animate-spin' : ''" />
           {{ post.status === 'Published' ? 'Unpublish' : 'Publish' }}
-        </el-button>
-        <el-button type="primary" :icon="Check" :loading="saving" @click="save">Save</el-button>
+        </button>
+        <button type="button" class="button button-primary" :disabled="saving" @click="save">
+          <Check class="h-4 w-4" />
+          Save
+        </button>
       </div>
     </div>
 
-    <div class="panel">
-      <div class="panel-body">
-        <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
-          <div class="form-grid">
-            <el-form-item label="Title" prop="title" class="wide">
-              <el-input v-model="form.title" maxlength="256" show-word-limit />
-            </el-form-item>
+    <div v-if="loading" class="admin-panel admin-panel-body">
+      <div class="grid gap-3">
+        <div class="h-14 animate-pulse rounded-xl bg-mist-50/7" />
+        <div class="h-14 animate-pulse rounded-xl bg-mist-50/7" />
+        <div class="h-96 animate-pulse rounded-xl bg-mist-50/7" />
+      </div>
+    </div>
 
-            <el-form-item label="Slug" prop="slug">
-              <el-input v-model="form.slug" maxlength="160" placeholder="Leave empty to generate" />
-            </el-form-item>
+    <form v-else class="admin-panel admin-panel-body" novalidate @submit.prevent="save">
+      <div class="form-grid">
+        <label class="wide mb-5 block">
+          <span class="field-label">Title</span>
+          <input
+            v-model="form.title"
+            class="control"
+            maxlength="256"
+            :aria-invalid="Boolean(errors.title)"
+            @blur="validateField('title')"
+          >
+          <span v-if="errors.title" class="field-error">{{ errors.title }}</span>
+        </label>
 
-            <el-form-item label="Tags">
-              <el-select v-model="form.tagIds" multiple filterable clearable placeholder="Select tags">
-                <el-option v-for="tag in tags" :key="tag.id" :label="tag.name" :value="tag.id" />
-              </el-select>
-            </el-form-item>
+        <label class="mb-5 block">
+          <span class="field-label">Slug</span>
+          <input
+            v-model="form.slug"
+            class="control"
+            maxlength="160"
+            placeholder="Leave empty to generate"
+            :aria-invalid="Boolean(errors.slug)"
+            @blur="validateField('slug')"
+          >
+          <span v-if="errors.slug" class="field-error">{{ errors.slug }}</span>
+        </label>
 
-            <el-form-item label="Subtitle" prop="subtitle" class="wide">
-              <el-input v-model="form.subtitle" maxlength="512" show-word-limit />
-            </el-form-item>
-
-            <el-form-item label="Cover image">
-              <ImageUploadCropper
-                v-model="form.coverImageId"
-                label="Cover image"
-                purpose="Cover"
-                :aspect-ratio="16 / 9"
-                :output-width="1200"
-                :output-height="675"
-              />
-            </el-form-item>
-
-            <el-form-item label="Banner image">
-              <ImageUploadCropper
-                v-model="form.bannerImageId"
-                label="Banner image"
-                purpose="Banner"
-                :aspect-ratio="3"
-                :output-width="1800"
-                :output-height="600"
-              />
-            </el-form-item>
-
-            <el-form-item prop="bodyMarkdown" class="wide body-field">
-              <template #label>
-                <div class="body-label">
-                  <span>Body</span>
-                  <div class="body-actions">
-                    <el-upload
-                      ref="markdownUploadRef"
-                      :auto-upload="false"
-                      :show-file-list="false"
-                      :limit="1"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
-                      :disabled="!isEditing"
-                      :on-change="handleMarkdownImageUploadChange"
-                    >
-                      <el-button :icon="Upload" :disabled="!isEditing">Insert image</el-button>
-                    </el-upload>
-                    <el-radio-group v-model="editorMode" size="small" class="editor-mode-group">
-                      <el-radio-button value="edit">Edit</el-radio-button>
-                      <el-radio-button value="split">Edit + preview</el-radio-button>
-                      <el-radio-button value="preview">Preview</el-radio-button>
-                    </el-radio-group>
-                  </div>
-                </div>
-              </template>
-
-              <div class="body-workspace" :class="bodyWorkspaceClass">
-                <div v-if="showBodyEditor" class="editor-pane">
-                  <Codemirror
-                    v-model="form.bodyMarkdown"
-                    class="post-body-editor"
-                    placeholder="Write the post body in Markdown..."
-                    :autofocus="false"
-                    :indent-with-tab="true"
-                    :tab-size="2"
-                    :extensions="editorExtensions"
-                    @ready="handleEditorReady"
-                    @blur="validateBody"
-                  />
-                </div>
-
-                <div v-if="showBodyPreview" class="preview-pane" v-loading="previewLoading">
-                  <article v-if="form.bodyMarkdown.trim()" class="markdown-preview" v-html="renderedBody" />
-                  <div v-else class="preview-empty">Nothing to preview.</div>
-                </div>
-              </div>
-            </el-form-item>
+        <div class="mb-5">
+          <span class="field-label">Tags</span>
+          <input v-model="tagSearch" class="control mb-2" placeholder="Filter tags">
+          <div class="max-h-44 overflow-y-auto rounded-xl border border-mist-50/10 bg-[#303030] p-2">
+            <label
+              v-for="tag in filteredTags"
+              :key="tag.id"
+              class="flex min-h-9 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-mist-200 transition hover:bg-mist-50/7"
+            >
+              <input v-model="form.tagIds" type="checkbox" :value="tag.id" class="h-4 w-4 accent-brass-200">
+              <span>{{ tag.name }}</span>
+            </label>
+            <p v-if="filteredTags.length === 0" class="px-2 py-3 text-sm font-semibold text-mist-300">
+              No matching tags.
+            </p>
           </div>
-        </el-form>
+        </div>
+
+        <label class="wide mb-5 block">
+          <span class="field-label">Subtitle</span>
+          <input
+            v-model="form.subtitle"
+            class="control"
+            maxlength="512"
+            :aria-invalid="Boolean(errors.subtitle)"
+            @blur="validateField('subtitle')"
+          >
+          <span v-if="errors.subtitle" class="field-error">{{ errors.subtitle }}</span>
+        </label>
+
+        <label class="mb-5 block">
+          <span class="field-label">Cover image</span>
+          <ImageUploadCropper
+            v-model="form.coverImageId"
+            label="Cover image"
+            purpose="Cover"
+            :aspect-ratio="16 / 9"
+            :output-width="1200"
+            :output-height="675"
+          />
+        </label>
+
+        <label class="mb-5 block">
+          <span class="field-label">Banner image</span>
+          <ImageUploadCropper
+            v-model="form.bannerImageId"
+            label="Banner image"
+            purpose="Banner"
+            :aspect-ratio="3"
+            :output-width="1800"
+            :output-height="600"
+          />
+        </label>
+
+        <div class="wide">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <span class="field-label mb-0">Body</span>
+            <div class="toolbar">
+              <input
+                ref="markdownFileInput"
+                class="hidden"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                @change="handleMarkdownImageFileChange"
+              >
+              <button type="button" class="button" :disabled="!isEditing" @click="openMarkdownImagePicker">
+                <ImagePlus class="h-4 w-4" />
+                Insert image
+              </button>
+              <div class="inline-flex overflow-hidden rounded-lg bg-[#303030] p-1">
+                <button
+                  v-for="mode in editorModeOptions"
+                  :key="mode.value"
+                  type="button"
+                  class="min-h-9 rounded-md px-3 text-sm font-bold transition"
+                  :class="editorMode === mode.value ? 'bg-brass-200/16 text-brass-100' : 'text-mist-300 hover:bg-mist-50/7 hover:text-mist-50'"
+                  :aria-pressed="editorMode === mode.value"
+                  @click="editorMode = mode.value"
+                >
+                  {{ mode.label }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="body-workspace" :class="bodyWorkspaceClass">
+            <div v-if="showBodyEditor" class="editor-pane">
+              <Codemirror
+                v-model="form.bodyMarkdown"
+                class="post-body-editor"
+                placeholder="Write the post body in Markdown..."
+                :autofocus="false"
+                :indent-with-tab="true"
+                :tab-size="2"
+                :extensions="editorExtensions"
+                @ready="handleEditorReady"
+                @blur="validateBody"
+              />
+            </div>
+
+            <div v-if="showBodyPreview" class="preview-pane" :class="previewLoading ? 'opacity-70' : ''">
+              <article v-if="form.bodyMarkdown.trim()" class="article-body" v-html="renderedBody" />
+              <div v-else class="grid min-h-[32rem] place-items-center text-sm font-semibold text-mist-300">
+                Nothing to preview.
+              </div>
+            </div>
+          </div>
+          <span v-if="errors.bodyMarkdown" class="field-error">{{ errors.bodyMarkdown }}</span>
+        </div>
       </div>
-    </div>
+    </form>
   </section>
 </template>
 
 <style scoped>
-.body-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-}
-
-.editor-mode-group {
-  flex-shrink: 0;
-}
-
-.body-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 .body-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   width: 100%;
   min-height: 560px;
   overflow: hidden;
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
-  background: var(--el-bg-color);
+  border: 1px solid rgba(255, 249, 238, 0.1);
+  border-radius: 0.75rem;
+  background: #252525;
 }
 
 .body-workspace.is-split {
@@ -582,7 +668,7 @@ function escapeMarkdownLabel(value: string): string {
 }
 
 .editor-pane {
-  border-right: 1px solid var(--el-border-color);
+  border-right: 1px solid rgba(255, 249, 238, 0.1);
 }
 
 .body-workspace:not(.is-split) .editor-pane {
@@ -599,90 +685,14 @@ function escapeMarkdownLabel(value: string): string {
 }
 
 .post-body-editor :deep(.cm-focused) {
-  outline: 2px solid var(--el-color-primary-light-3);
+  outline: 2px solid rgba(240, 201, 120, 0.52);
   outline-offset: -2px;
 }
 
 .preview-pane {
   overflow: auto;
-  padding: 22px 24px;
-  background: var(--el-bg-color);
-}
-
-.markdown-preview {
-  max-width: 860px;
-  color: var(--el-text-color-primary);
-  line-height: 1.7;
-}
-
-.markdown-preview :deep(h1),
-.markdown-preview :deep(h2),
-.markdown-preview :deep(h3) {
-  margin: 1.25em 0 0.55em;
-  color: var(--el-text-color-primary);
-  line-height: 1.25;
-}
-
-.markdown-preview :deep(h1:first-child),
-.markdown-preview :deep(h2:first-child),
-.markdown-preview :deep(h3:first-child),
-.markdown-preview :deep(p:first-child) {
-  margin-top: 0;
-}
-
-.markdown-preview :deep(p),
-.markdown-preview :deep(ul),
-.markdown-preview :deep(ol),
-.markdown-preview :deep(blockquote),
-.markdown-preview :deep(pre) {
-  margin: 0 0 1em;
-}
-
-.markdown-preview :deep(a) {
-  color: var(--el-color-primary);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.markdown-preview :deep(img) {
-  max-width: 100%;
-  height: auto;
-  border-radius: 8px;
-}
-
-.markdown-preview :deep(blockquote) {
-  padding: 0 0 0 14px;
-  border-left: 3px solid var(--el-border-color-darker);
-  color: var(--el-text-color-regular);
-}
-
-.markdown-preview :deep(code) {
-  padding: 2px 5px;
-  border-radius: 5px;
-  background: var(--el-fill-color-light);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.92em;
-}
-
-.markdown-preview :deep(pre) {
-  overflow: auto;
-  padding: 14px;
-  border-radius: 8px;
-  background: var(--el-fill-color-darker);
-  color: var(--el-text-color-primary);
-}
-
-.markdown-preview :deep(pre code) {
-  padding: 0;
-  background: transparent;
-  color: inherit;
-}
-
-.preview-empty {
-  display: grid;
-  min-height: 516px;
-  place-items: center;
-  color: var(--el-text-color-secondary);
+  padding: 1.4rem 1.5rem;
+  background: #252525;
 }
 
 @media (max-width: 980px) {
@@ -692,22 +702,7 @@ function escapeMarkdownLabel(value: string): string {
 
   .body-workspace.is-split .editor-pane {
     border-right: 0;
-    border-bottom: 1px solid var(--el-border-color);
-  }
-}
-
-@media (max-width: 720px) {
-  .body-label {
-    display: grid;
-  }
-
-  .body-actions {
-    justify-content: flex-start;
-  }
-
-  .editor-mode-group {
-    max-width: 100%;
-    overflow-x: auto;
+    border-bottom: 1px solid rgba(255, 249, 238, 0.1);
   }
 }
 </style>

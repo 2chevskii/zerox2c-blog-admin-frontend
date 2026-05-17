@@ -1,6 +1,6 @@
 # Frontend Architecture
 
-Last updated: 2026-05-16
+Last updated: 2026-05-17
 
 ## Runtime
 
@@ -8,7 +8,8 @@ The app is a Vite-powered Vue 3 SPA. It uses:
 
 - Vue Router for route-level navigation.
 - Pinia for authentication state.
-- Element Plus for the admin component system.
+- Tailwind CSS v4 and local Vue controls for the admin component system.
+- Lucide Vue icons.
 - CodeMirror 6 via `vue-codemirror` for editing post bodies.
 - Backend-rendered Markdown preview HTML from `/api/admin/markdown/render`.
 - Cropper.js for client-side image panning/cropping before upload.
@@ -50,7 +51,7 @@ All routes except `/login` are nested under `AdminLayout` and require an authent
 
 ## Styling
 
-Global styling lives in `src/styles.css`. The app uses Element Plus' default dark theme by importing `element-plus/theme-chalk/dark/css-vars.css` and setting `class="dark"` on the root `html` element. Local CSS should use Element Plus CSS variables for color, background, and border values so pages stay aligned with the dark theme.
+Global styling lives in `src/styles.css`. The app uses Tailwind CSS v4 through the official Vite plugin and mirrors the public reader frontend's dark 2CHEVSKII tokens, fonts, panels, focus treatment, and article preview styles. Local views should use the Tailwind utilities and small component classes defined there instead of reintroducing a component-library theme.
 
 ## Post Editing
 
@@ -64,7 +65,7 @@ The body editor uses three modes:
 
 Image uploads:
 
-- `ImageUploadCropper` wraps Element Plus upload/dialog controls and Cropper.js.
+- `ImageUploadCropper` wraps a native file input, local Tailwind dialog controls, and Cropper.js.
 - Cover uploads use `ImagePurpose.Cover`, a 16:9 crop, and store the returned image id in `coverImageId`.
 - Banner uploads use `ImagePurpose.Banner`, a 3:1 crop, and store the returned image id in `bannerImageId`.
 - Embedded Markdown images upload through `/api/admin/posts/{id}/markdown/images`; after upload the editor inserts Markdown with the returned local path such as `images/{imageId}`.

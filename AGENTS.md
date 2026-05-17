@@ -4,7 +4,7 @@ Follow this file when making changes in this frontend repository.
 
 ## Project Snapshot
 
-This is the admin frontend for the `0x2c.dev` blog backend. It is a Vue 3 + TypeScript + Vite single-page app using Vue Router, Pinia, and Element Plus.
+This is the admin frontend for the `0x2c.dev` blog backend. It is a Vue 3 + TypeScript + Vite single-page app using Vue Router, Pinia, Tailwind CSS v4, Lucide Vue icons, CodeMirror, and Cropper.js.
 
 The backend lives at `../blog-backend`. Read the backend `README.md` and architecture docs before changing API behavior assumptions.
 
@@ -26,8 +26,8 @@ Agents may inspect and modify any of these three sibling repositories when a tas
 - Keep endpoint wrappers in `src/api/`, grouped by backend module.
 - Keep reusable non-layout controls in `src/components/`.
 - Keep auth/session state in `src/stores/auth.ts`.
-- Do not add a second UI component library unless the user explicitly asks for it.
-- Prefer Element Plus components over custom control markup for forms, tables, dialogs, messages, and menus.
+- Do not add a UI component library unless the user explicitly asks for it.
+- Prefer local Tailwind-styled Vue controls for forms, tables, dialogs, messages, and menus.
 - Keep controllers/API concerns out of views where a small typed API wrapper can handle them.
 
 ## API Rules
@@ -50,7 +50,8 @@ Agents may inspect and modify any of these three sibling repositories when a tas
 
 - This is an operational admin tool, not a marketing site.
 - Keep pages dense, predictable, and scan-friendly.
-- The app uses Element Plus' default dark theme. Use Element Plus CSS variables for custom colors instead of hard-coded light surfaces.
+- Match the public reader frontend's dark 2CHEVSKII design language.
+- Use Tailwind v4 theme tokens and local CSS component classes from `src/styles.css`; avoid reintroducing Element Plus styling assumptions.
 - Use restrained styling and stable table/form layouts.
 - Avoid visible in-app explanations of how the UI works; labels and actions should be self-evident.
 

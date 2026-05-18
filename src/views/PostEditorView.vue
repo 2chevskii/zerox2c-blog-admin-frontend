@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { autocompletion, type CompletionContext } from '@codemirror/autocomplete'
 import { markdown } from '@codemirror/lang-markdown'
-import { ArrowLeft, Check, ImagePlus, RefreshCw } from '@lucide/vue'
+import { ArrowLeft, Check, ChevronDown, ImagePlus, RefreshCw, X } from '@lucide/vue'
 import { basicSetup, EditorView } from 'codemirror'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { Codemirror } from 'vue-codemirror'
@@ -36,6 +36,8 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const markdownFileInput = ref<HTMLInputElement>()
+const tagCombobox = ref<HTMLElement>()
+const tagInput = ref<HTMLInputElement>()
 const loading = ref(false)
 const saving = ref(false)
 const previewLoading = ref(false)
@@ -46,6 +48,7 @@ const editorMode = ref<EditorMode>('edit')
 const editorView = shallowRef<EditorView | null>(null)
 const renderedBody = ref('')
 const tagSearch = ref('')
+const tagComboboxOpen = ref(false)
 const postId = computed(() => (typeof route.params.id === 'string' ? route.params.id : ''))
 const isEditing = computed(() => !!postId.value)
 const showBodyEditor = computed(() => editorMode.value !== 'preview')
@@ -53,14 +56,6 @@ const showBodyPreview = computed(() => editorMode.value !== 'edit')
 const bodyWorkspaceClass = computed(() => ({
   'is-split': editorMode.value === 'split',
 }))
-const filteredTags = computed(() => {
-  const search = tagSearch.value.trim().toLowerCase()
-  if (!search) {
-    return tags.value
-  }
-
-  return tags.value.filter((tag) => tag.name.includes(search))
-})
 
 const editorModeOptions: { value: EditorMode; label: string }[] = [
   { value: 'edit', label: 'Edit' },
@@ -76,6 +71,18 @@ const form = reactive<PostForm>({
   coverImageId: null,
   bannerImageId: null,
   tagIds: [],
+})
+
+const selectedTags = computed(() =>
+  form.tagIds
+    .map((id) => tags.value.find((tag) => tag.id === id))
+    .filter((tag): tag is TagResponse => Boolean(tag)),
+)
+const tagOptions = computed(() => {
+  const search = tagSearch.value.trim().toLowerCase()
+  const selectedIds = new Set(form.tagIds)
+
+  return tags.value.filter((tag) => !selectedIds.has(tag.id) && (!search || tag.name.includes(search)))
 })
 
 const errors = reactive<Record<PostFormField, string>>({
@@ -157,9 +164,13 @@ let previewRenderRequestId = 0
 
 watch(() => form.bodyMarkdown, schedulePreviewRender)
 
-onMounted(loadEditor)
+onMounted(() => {
+  void loadEditor()
+  document.addEventListener('pointerdown', handleDocumentPointerDown)
+})
 onBeforeUnmount(() => {
   clearPreviewRenderTimer()
+  document.removeEventListener('pointerdown', handleDocumentPointerDown)
 })
 
 async function loadEditor(): Promise<void> {
@@ -306,6 +317,62 @@ function clearErrors(): void {
   errors.title = ''
   errors.subtitle = ''
   errors.bodyMarkdown = ''
+}
+
+function openTagCombobox(): void {
+  tagComboboxOpen.value = true
+}
+
+function focusTagInput(): void {
+  tagInput.value?.focus()
+  openTagCombobox()
+}
+
+function toggleTagCombobox(): void {
+  tagComboboxOpen.value = !tagComboboxOpen.value
+  tagInput.value?.focus()
+}
+
+function selectTag(tag: TagResponse): void {
+  if (!form.tagIds.includes(tag.id)) {
+    form.tagIds = [...form.tagIds, tag.id]
+  }
+
+  tagSearch.value = ''
+  tagComboboxOpen.value = true
+  tagInput.value?.focus()
+}
+
+function removeTag(tagId: string): void {
+  form.tagIds = form.tagIds.filter((id) => id !== tagId)
+  tagInput.value?.focus()
+}
+
+function handleTagInputKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    const [firstOption] = tagOptions.value
+    if (firstOption) {
+      selectTag(firstOption)
+    }
+    return
+  }
+
+  if (event.key === 'Escape') {
+    tagComboboxOpen.value = false
+    return
+  }
+
+  if (event.key === 'Backspace' && !tagSearch.value && form.tagIds.length > 0) {
+    event.preventDefault()
+    removeTag(form.tagIds[form.tagIds.length - 1])
+  }
+}
+
+function handleDocumentPointerDown(event: PointerEvent): void {
+  if (!tagCombobox.value?.contains(event.target as Node)) {
+    tagComboboxOpen.value = false
+  }
 }
 
 function validateBody(): void {
@@ -533,19 +600,66 @@ function escapeMarkdownLabel(value: string): string {
 
         <div class="mb-5">
           <span class="field-label">Tags</span>
-          <input v-model="tagSearch" class="control mb-2" placeholder="Filter tags">
-          <div class="max-h-44 overflow-y-auto rounded-xl border border-mist-50/10 bg-[#303030] p-2">
-            <label
-              v-for="tag in filteredTags"
-              :key="tag.id"
-              class="flex min-h-9 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-mist-200 transition hover:bg-mist-50/7"
+          <div ref="tagCombobox" class="relative">
+            <div
+              class="tag-combobox"
+              role="combobox"
+              aria-haspopup="listbox"
+              :aria-expanded="tagComboboxOpen"
+              aria-controls="post-tag-options"
+              @click="focusTagInput"
             >
-              <input v-model="form.tagIds" type="checkbox" :value="tag.id" class="h-4 w-4 accent-brass-200">
-              <span>{{ tag.name }}</span>
-            </label>
-            <p v-if="filteredTags.length === 0" class="px-2 py-3 text-sm font-semibold text-mist-300">
-              No matching tags.
-            </p>
+              <button
+                v-for="tag in selectedTags"
+                :key="tag.id"
+                type="button"
+                class="tag-chip"
+                :aria-label="`Remove ${tag.name}`"
+                @click.stop="removeTag(tag.id)"
+              >
+                <span>{{ tag.name }}</span>
+                <X class="h-3.5 w-3.5" />
+              </button>
+              <input
+                ref="tagInput"
+                v-model="tagSearch"
+                class="tag-combobox-input"
+                placeholder="Add tag"
+                role="searchbox"
+                autocomplete="off"
+                @focus="openTagCombobox"
+                @keydown="handleTagInputKeydown"
+              >
+              <button
+                type="button"
+                class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-mist-300 transition hover:bg-mist-50/7 hover:text-brass-100"
+                aria-label="Toggle tag options"
+                @click.stop="toggleTagCombobox"
+              >
+                <ChevronDown class="h-4 w-4" :class="tagComboboxOpen ? 'rotate-180' : ''" />
+              </button>
+            </div>
+
+            <div
+              v-if="tagComboboxOpen"
+              id="post-tag-options"
+              role="listbox"
+              class="absolute z-20 mt-2 max-h-48 w-full overflow-y-auto rounded-lg border border-mist-50/10 bg-[#303030] p-1 shadow-[0_16px_34px_rgba(0,0,0,0.28)]"
+            >
+              <button
+                v-for="tag in tagOptions"
+                :key="tag.id"
+                type="button"
+                role="option"
+                class="flex min-h-9 w-full items-center rounded-md px-2.5 text-left text-sm font-semibold text-mist-200 transition hover:bg-mist-50/7 hover:text-mist-50"
+                @mousedown.prevent="selectTag(tag)"
+              >
+                {{ tag.name }}
+              </button>
+              <p v-if="tagOptions.length === 0" class="px-2.5 py-3 text-sm font-semibold text-mist-300">
+                {{ tagSearch ? 'No matching tags.' : 'All tags selected.' }}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -646,6 +760,77 @@ function escapeMarkdownLabel(value: string): string {
 </template>
 
 <style scoped>
+.tag-combobox {
+  display: flex;
+  min-height: 2.75rem;
+  width: 100%;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  border: 1px solid rgba(255, 249, 238, 0.1);
+  border-radius: 0.5rem;
+  background: #303030;
+  padding: 0.35rem 0.35rem 0.35rem 0.5rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.tag-combobox:focus-within {
+  border-color: rgba(240, 201, 120, 0.7);
+  background: #353535;
+}
+
+.tag-chip {
+  display: inline-flex;
+  min-height: 1.9rem;
+  max-width: 100%;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.35rem;
+  overflow: hidden;
+  border: 1px solid rgba(240, 201, 120, 0.2);
+  border-radius: 0.45rem;
+  background: rgba(240, 201, 120, 0.12);
+  padding: 0.25rem 0.45rem 0.25rem 0.6rem;
+  color: #ffe7ad;
+  font-size: 0.75rem;
+  font-weight: 700;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.tag-chip:hover {
+  border-color: rgba(240, 201, 120, 0.38);
+  background: rgba(240, 201, 120, 0.18);
+  color: #fff9ee;
+}
+
+.tag-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-combobox-input {
+  min-width: 8rem;
+  flex: 1 1 8rem;
+  border: 0;
+  background: transparent;
+  padding: 0.25rem 0.2rem;
+  color: #fff9ee;
+  font-size: 0.875rem;
+  font-weight: 600;
+  outline: none;
+}
+
+.tag-combobox-input::placeholder {
+  color: rgba(187, 169, 143, 0.55);
+}
+
 .body-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

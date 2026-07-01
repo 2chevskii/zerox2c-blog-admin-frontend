@@ -1,0 +1,58 @@
+name: Build and publish Docker image
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker:
+    name: Build and publish Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve image tags
+        id: image
+        shell: bash
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          ref_tag="$(printf '%s' "${GITHUB_REF_NAME}" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9_.-]+/-/g; s/^-+//; s/-+$//')"
+
+          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+          echo "sha_tag=sha-${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "ref_tag=${ref_tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build Docker image
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          SHA_TAG: ${{ steps.image.outputs.sha_tag }}
+        run: |
+          docker build --target runtime --tag "${IMAGE}:${SHA_TAG}" .
+          docker image ls "${IMAGE}:${SHA_TAG}"
+
+      - name: Smoke test Docker image
+        shell: bash
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          SHA_TAG: ${{ steps.image.outputs.sha_tag }}
+        run: bash scripts/smoke-docker-image.sh "${IMAGE}:${SHA_TAG}"
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Push Docker image
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          SHA_TAG: ${{ steps.image.outputs.sha_tag }}
+          REF_TAG: ${{ steps.image.outputs.ref_tag }}
+        run: |
+          docker tag "${IMAGE}:${SHA_TAG}" "${IMAGE}:${REF_TAG}"
+          docker push "${IMAGE}:${SHA_TAG}"
+          docker push "${IMAGE}:${REF_TAG}"
